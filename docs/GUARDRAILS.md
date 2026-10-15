@@ -23,3 +23,8 @@ Environment: `AD_ALLOW_WEAKER=1` disables the ratchet and is for humans only (an
 
 Self-test: `tests/test_tools.py` (pure checks, asm checks, and with `--emulator` the real regression: the saved 27B-model spec for 8c073f72 is NOT PROVEN and reports the surviving mutants, the generated spec PROVES a reference port, and a weakened spec is rejected). Fixtures in `tests/fixtures/073f72_*` are the model's original attempt and a judge port written from the asm.
 Honest limits: the lint reasons from instructions, not from intent (an index field must still be bounded by a `patch`, which specgen does for the `mov.w` + `muls.w` pattern only); a function whose behaviour depends on state the spec never sets is still only as proven as its regions are rich.
+
+## Trial record (2026-10-15)
+- Before: Nadesico 8c073f72 (float + tail call + indirect table), local qwen3.8-27b, 235 tool calls, NOT PROVEN (19/24 mutants alive: most were in the shared soft-float library, the rest zero-filled tables).
+- After these guard rails (same model, fresh sandbox, port deleted): PROVEN in 134 tool calls (about 70 min). It started from `specgen`, fixed 6 -> 2 -> 0 real mismatches in the port without touching the spec, then only ADDED inputs (larger table, more patches) to kill the last mutants. Independent judge: same port, seed 7, 300 cases, 60 mutants, UBSan+ASan: PROVEN, 0 equivalents declared.
+- `proofcheck` over a whole old tree reports hundreds of "unbacked" claims: ports verified before the ledger existed (nd_golden differentials, mutcheck) have no ledger entry. Scope it to the directory you are working on (`./dcre claims port/`).
