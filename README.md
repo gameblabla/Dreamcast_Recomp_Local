@@ -9,7 +9,7 @@ It contains no game code, data or SDK. Everything game-derived is generated from
 ## 1. Quick start
 
 ```bash
-git clone --recurse-submodules <this repo> && cd Dreamcast_Recomp_Local     # or: git submodule update --init
+git clone --recurse-submodules https://github.com/gameblabla/Dreamcast_Recomp_Local.git && cd Dreamcast_Recomp_Local     # or: git submodule update --init
 cp project.env.example project.env && $EDITOR project.env                    # DISC=... SDK_DIRS=...
 ./dcre doctor           # what is installed / missing
 ./dcre extract          # disc -> game/1ST_READ.BIN   (add --boot-only to skip the other ~1 GB of files)

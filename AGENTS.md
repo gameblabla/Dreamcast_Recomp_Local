@@ -19,6 +19,8 @@ Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by functi
 
 - Skills live in `.agents/skills/` (`.opencode/skills` and `.claude/skills` are symlinks). Edit them there.
 
+- An emulator/autodiff run silent for >10 min is a hang, not slowness. Each case now has a wall-clock limit (`ND_CASE_MS`, default 120 s) and fails with a FAULT hint; stub addresses (`skip=`, `callog=`, `callees`) are HEX. Do not re-run a hung job unchanged.
+
 ## Hygiene
 - Trust the asm (`./dcre annotate`) over Ghidra's decompile for params, widths, signs, strides, delay slots, loop shapes.
 - Read targeted (grep/head/sed -n); never print whole dumps. Temporaries in `work/` or `work/autodiff/`.

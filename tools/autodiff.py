@@ -95,7 +95,7 @@ def private_project(tmp):
 
 def _run_headless(cf, rf, env, project=None):
     return subprocess.run([HEADLESS, project or PROJECT, PNAME, '-process', PROGRAM, '-noanalysis', '-readOnly', '-scriptPath', SCRIPTS,
-                           '-postScript', 'DrEmu.java', cf, rf], capture_output=True, text=True, env=env)
+                           '-postScript', 'DrEmu.java', cf, rf], capture_output=True, text=True, env=env, timeout=int(os.environ.get('AD_EMU_TIMEOUT', '3600')))
 
 
 def run_emulator(lines, tag, tmp):

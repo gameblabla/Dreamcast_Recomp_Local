@@ -68,6 +68,7 @@ def win(p):
 def wine_env(bindir, tmp):
     e = dict(os.environ, WINEDEBUG='-all', DISPLAY='', WAYLAND_DISPLAY='', SHC_LIB=win(bindir), SHC_TMP=win(tmp), SHC_INC=win(bindir),
              WINEPREFIX=os.environ.get('DR_WINEPREFIX') or os.path.join(ROOT, 'work', 'wineprefix'))
+    os.makedirs(e['WINEPREFIX'], exist_ok=True)      # wine refuses to create a prefix in a directory we do not own (e.g. directly in /tmp): create it first
     return e
 
 

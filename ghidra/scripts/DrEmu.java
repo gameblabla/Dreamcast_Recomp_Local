@@ -15,6 +15,8 @@ import java.util.*;
 
 public class DrEmu extends GhidraScript {
 	static final long STACK_TOP = 0x8d000000L - 0x100;
+	static final long STEP_LIMIT = Long.parseLong(System.getenv().getOrDefault("ND_STEP_LIMIT", "20000000"));
+	static final long CASE_MS = Long.parseLong(System.getenv().getOrDefault("ND_CASE_MS", "120000"));   // per-case wall-clock limit: a looping case fails in 2 minutes instead of 15+
 	static long RET_ADDR;   // an address inside the program (image base + 0xc0); a breakpoint here ends the call
 
 
@@ -47,6 +49,7 @@ public class DrEmu extends GhidraScript {
 				line = line.trim();
 				if (line.isEmpty()) { out.println(); continue; }
 				out.println(runCase(emu, line));
+				out.flush();      // progress is visible while a long run is going (a missing last line = the case that hangs)
 			}
 		} finally {
 			emu.dispose();
@@ -155,6 +158,7 @@ public class DrEmu extends GhidraScript {
 		emu.writeRegister("PR", BigInteger.valueOf(RET_ADDR));
 		emu.writeRegister("pc", BigInteger.valueOf(entry));
 		long steps = 0;
+		final long deadline = System.nanoTime() + CASE_MS * 1_000_000L;
 		String[] abiRegs = {"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"};   // callee-saved by the SH-4 C ABI (r15 = sp): checked at return
 		long[] abiIn = new long[abiRegs.length];
 		for (int i = 0; i < abiRegs.length; i++) abiIn[i] = emu.readRegister(abiRegs[i]).longValue() & 0xffffffffL;
@@ -258,7 +262,8 @@ public class DrEmu extends GhidraScript {
 					if (fr4Watches.contains(emu.getExecutionAddress().getOffset())) watchLog.append(Long.toHexString(emu.readRegister("fr4").longValue() & 0xffffffffL)).append(",");
 				}
 				if (stops.contains(emu.getExecutionAddress().getOffset())) break;
-				if (steps > 20_000_000) return "FAULT step-limit";
+				if (steps > STEP_LIMIT) return "FAULT step-limit (" + steps + " steps; a callee that should be stubbed is running for real? skip=/callog=/skipret= addresses are HEX)";
+				if ((steps & 0xfff) == 0 && System.nanoTime() > deadline) return "FAULT time-limit (" + CASE_MS + " ms, " + steps + " steps; ND_CASE_MS to raise; check that every callee is stubbed and the skip= addresses are HEX)";
 			}
 		} catch (Exception e) {
 			return "FAULT " + e;
