@@ -1,0 +1,196 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-bvzihdzo> <head><!-- Global Metadata --><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/jpeg" href="/favicon.jpg"><meta name="generator" content="Astro v5.16.9"><!-- Font preloads --><link rel="preload" href="/fonts/atkinson-regular.woff" as="font" type="font/woff" crossorigin><link rel="preload" href="/fonts/atkinson-bold.woff" as="font" type="font/woff" crossorigin><!-- Canonical URL --><link rel="canonical" href="https://skmp.dev/blog/sh4-fpu/"><!-- Feeds --><link rel="alternate" type="application/rss+xml" title="Reversing the SH-4 fpu with the help of three AI models" href="/rss.xml"><link rel="alternate" type="application/atom+xml" title="Reversing the SH-4 fpu with the help of three AI models" href="/atom.xml"><link rel="alternate" type="application/feed+json" title="Reversing the SH-4 fpu with the help of three AI models" href="/feed.json"><!-- Primary Meta Tags --><title>Reversing the SH-4 fpu with the help of three AI models</title><meta name="title" content="Reversing the SH-4 fpu with the help of three AI models"><meta name="description" content><!-- Open Graph / Facebook --><meta property="og:type" content="website"><meta property="og:url" content="https://skmp.dev/blog/sh4-fpu/"><meta property="og:title" content="Reversing the SH-4 fpu with the help of three AI models"><meta property="og:description" content><!-- Twitter --><meta property="twitter:card" content="summary_large_image"><meta property="twitter:url" content="https://skmp.dev/blog/sh4-fpu/"><meta property="twitter:title" content="Reversing the SH-4 fpu with the help of three AI models"><meta property="twitter:description" content><!-- JSON-LD structured data --><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"skmp.dev","url":"https://skmp.dev","author":{"@type":"Person","name":"Stefanos Kornilios Mitsis Poiitidis","alternateName":["skmp","poiitidis","drk||Raziel"],"url":"https://skmp.dev","sameAs":["https://github.com/skmp","https://gitlab.com/skmp","https://www.linkedin.com/in/skmp/","https://www.youtube.com/@poiitidis","https://x.com/poiitidis"]}}</script><style>:root{--accent: #2337ff;--accent-dark: #000d8a;--black: 15, 18, 25;--gray: 96, 115, 159;--gray-light: 229, 233, 240;--gray-dark: 34, 41, 57;--gray-gradient: rgba(var(--gray-light), 50%), #fff;--box-shadow: 0 2px 6px rgba(var(--gray), 25%), 0 8px 24px rgba(var(--gray), 33%), 0 16px 32px rgba(var(--gray), 33%)}@font-face{font-family:Atkinson;src:url(/fonts/atkinson-regular.woff) format("woff");font-weight:400;font-style:normal;font-display:swap}@font-face{font-family:Atkinson;src:url(/fonts/atkinson-bold.woff) format("woff");font-weight:700;font-style:normal;font-display:swap}body{font-family:Atkinson,sans-serif;margin:0;padding:0;text-align:left;background:linear-gradient(var(--gray-gradient)) no-repeat;background-size:100% 600px;word-wrap:break-word;overflow-wrap:break-word;color:rgb(var(--gray-dark));font-size:20px;line-height:1.7}main{width:720px;max-width:calc(100% - 2em);margin:auto;padding:3em 1em}h1,h2,h3,h4,h5,h6{margin:0 0 .5rem;color:rgb(var(--black));line-height:1.2}h1{font-size:3.052em}h2{font-size:2.441em}h3{font-size:1.953em}h4{font-size:1.563em}h5{font-size:1.25em}strong,b{font-weight:700}a,a:hover{color:var(--accent)}p{margin-bottom:1em}.prose p{margin-bottom:2em}textarea{width:100%;font-size:16px}input{font-size:16px}table{width:100%}img{max-width:100%;height:auto;border-radius:8px}code{padding:2px 5px;background-color:rgb(var(--gray-light));border-radius:2px}pre{padding:1.5em;border-radius:8px}pre>code{all:unset}blockquote{border-left:4px solid var(--accent);padding:0 0 0 20px;margin:0;font-size:1.333em}hr{border:none;border-top:1px solid rgb(var(--gray-light))}@media(max-width:720px){body{font-size:18px}main{padding:1em}}.sr-only{border:0;padding:0;margin:0;position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(1px 1px 1px 1px);clip:rect(1px,1px,1px,1px);clip-path:inset(50%);white-space:nowrap}a[data-astro-cid-eimmu3lg]{display:inline-block;text-decoration:none}a[data-astro-cid-eimmu3lg].active{font-weight:bolder;text-decoration:underline}header[data-astro-cid-3ef6ksr2]{margin:0;padding:0 1em;background:#fff;box-shadow:0 2px 8px rgba(var(--black),5%)}h2[data-astro-cid-3ef6ksr2]{margin:0;font-size:1em}h2[data-astro-cid-3ef6ksr2] a[data-astro-cid-3ef6ksr2],h2[data-astro-cid-3ef6ksr2] a[data-astro-cid-3ef6ksr2].active{text-decoration:none}nav[data-astro-cid-3ef6ksr2]{display:flex;align-items:center;justify-content:space-between}.site-logo[data-astro-cid-3ef6ksr2]{height:2em;width:auto;display:block}nav[data-astro-cid-3ef6ksr2] a[data-astro-cid-3ef6ksr2]{padding:1em .5em;color:var(--black);border-bottom:4px solid transparent;text-decoration:none}nav[data-astro-cid-3ef6ksr2] a[data-astro-cid-3ef6ksr2].active{text-decoration:none;border-bottom-color:var(--accent)}@media(max-width:720px){nav[data-astro-cid-3ef6ksr2]{flex-wrap:wrap}}footer[data-astro-cid-sz7xmlte]{padding:2em 1em 6em;background:linear-gradient(var(--gray-gradient)) no-repeat;color:rgb(var(--gray));text-align:center}
+main[data-astro-cid-bvzihdzo]{width:calc(100% - 2em);max-width:100%;margin:0}.prose[data-astro-cid-bvzihdzo]{width:720px;max-width:calc(100% - 2em);margin:auto;padding:1em;color:rgb(var(--gray-dark))}.title[data-astro-cid-bvzihdzo]{margin-bottom:1em;padding:1em 0;text-align:center;line-height:1}.title[data-astro-cid-bvzihdzo] h1[data-astro-cid-bvzihdzo]{margin:0 0 .5em}.date[data-astro-cid-bvzihdzo]{margin-bottom:.5em;color:rgb(var(--gray))}.last-updated-on[data-astro-cid-bvzihdzo]{font-style:italic}.meta[data-astro-cid-bvzihdzo]{text-align:center;color:rgb(var(--gray));font-size:.875em;margin-top:.5em}.meta[data-astro-cid-bvzihdzo] span[data-astro-cid-bvzihdzo]{margin:0 .25em}
+</style></head> <body data-astro-cid-bvzihdzo> <header data-astro-cid-3ef6ksr2> <nav data-astro-cid-3ef6ksr2> <img src="/favicon.jpg" class="site-logo" alt="Logo" data-astro-cid-3ef6ksr2> <div class="internal-links" data-astro-cid-3ef6ksr2> <a href="/" data-astro-cid-3ef6ksr2="true" data-astro-cid-eimmu3lg> Home </a>  <a href="/blog" class="active" data-astro-cid-3ef6ksr2="true" data-astro-cid-eimmu3lg> Blog </a>  <a href="/projects" data-astro-cid-3ef6ksr2="true" data-astro-cid-eimmu3lg> Projects </a>  </div> </nav> </header>  <main data-astro-cid-bvzihdzo> <article data-astro-cid-bvzihdzo> <div class="prose" data-astro-cid-bvzihdzo> <div class="title" data-astro-cid-bvzihdzo> <div class="date" data-astro-cid-bvzihdzo> <time datetime="2026-09-20T00:00:00.000Z"> Sep 20, 2026 </time>  </div> <h1 data-astro-cid-bvzihdzo>Reversing the SH-4 fpu with the help of three AI models</h1> <div class="meta" data-astro-cid-bvzihdzo>
+Posted in dreamcast, fpu </div>  <hr data-astro-cid-bvzihdzo> </div>  <h2 id="intro">Intro</h2>
+<p>The SH-4 in the Dreamcast has four ‘special’ floating-point instructions that exist to accelerate 3d graphics:</p>
+<ul>
+<li><strong>FIPR</strong>: 4-element inner product</li>
+<li><strong>FTRV</strong>: 4x4 matrix times vector</li>
+<li><strong>FSCA</strong>: sine and cosine approximation of a 16-bit angle</li>
+<li><strong>FSRRA</strong>: square root reciprocal approximation</li>
+</ul>
+<p>FIPR and FTRV are documented by the Renesas/Hitachi manuals, while FSCA and FSRRA are documented for SH4A, which has a different pipeline. They are all “approximate” instructions.</p>
+<p>It’s been a puzzle to me, and others in the Dreamcast emulation scene, on how exactly those instructions can be replicated and what is their likely internal structure.</p>
+<p>For emulation purposes, it is not critical to get them bit exact, however doing so can fix many corner cases such as game intros. Game intros are often recorded from a developer/tester playing the game, and then just playback the inputs to re-create the intro sequence. Small bit errors from these instructions accumulate and often lead to intros not playing back correctly.</p>
+<p>I used Fable 5.1, Opus 5, and GPT 6 Astra to brute force the problem space, and some intuition based on the docs and likely hardware structures I had.</p>
+<p>At this point, I also have to thank MetalliC for providing 2.15 billon FSRRA input/output pairs, and reminding me of this open question!</p>
+<p><a href="https://gist.github.com/skmp/4bd7b38149fc455978b5104201573236">You can find the bit-exact C solution here</a></p>
+<p><a href="/sh4-vector-calculator">You can play with a WIP calculator for this block here</a></p>
+<h2 id="overall-shape-of-the-reversed-pipeline">Overall shape of the reversed pipeline</h2>
+<p><img src="/images/fpu/pipeline.svg" alt="Pipeline Diagram"></p>
+<p>The TL;DR is: The hardware consists of one block of four truncated Booth multipliers, four aligners, a four-input adder and a single rounding stage, with latches that enable hold and feedback in the multipliers.</p>
+<p>FIPR uses it once, FTRV is a microprogram that uses it four times, FSCA and FSRRA are microprograms
+that do a piecewise cubic, feeding product registers back as operands, and use a what seems to be 17-word and a 34-word coefficient ROMs.</p>
+<p>FSCA and FSRRA are almost free. They add ~3.6 kbit of ROM, and a few feedback multiplexers.</p>
+<p>This has been validated over</p>
+<ul>
+<li>FIPR: 32M vectors + 5.2M edge vectors (DN = 1), 1M denormal-range vectors (DN = 0), for both rounding modes</li>
+<li>FTRV: 524,288 matrices x 4 rows, for both rounding modes</li>
+<li>FSCA: All 64Ki angles, for both rounding modes</li>
+<li>FSRRA: [1,4) range in both rounding modes, all positive normal inputs for round to nearest.</li>
+</ul>
+<p>In addition, 3114 test vectors were used to characterize the FPSCR behavior.</p>
+<h2 id="how-approximate-are-they">How “approximate” are they?</h2>
+<p>The graphs bellow showcase the block as implemented, vs a non-truncated multiplier implementation, and against the ground truth for FSCA and FSRRA.</p>
+<p><img src="/images/fpu/precision_summary.svg" alt="Share of correctly rounded results per instruction"></p>
+<p><img src="/images/fpu/fipr_hist.svg" alt="FIPR error histogram: hardware versus IEEE float sequence"></p>
+<p><img src="/images/fpu/ftrv_hist.svg" alt="FTRV error histogram for a rotate+translate matrix row"></p>
+<p>FIPR and FTRV are <em>more</em> accurate than doing the same arithmetic with IEEE multiplies and adds. A program that computes <code>a0*b0 + a1*b1 + a2*b2 + a3*b3</code> with ordinary <code>float</code> operations rounds seven times; the SH-4 block keeps 28-bit products and rounds once.</p>
+<p>For FSCA and FSRRA the truncated multipliers don’t cause noticeable precision loss.</p>
+<p><img src="/images/fpu/fsca_error.svg" alt="FSCA error across the first quadrant"></p>
+<p>FSCA’s is less than 1.88 units of 2^-24, and 54 % of all angles are correctly rounded. This is over the 64Ki input though, which is already a quantized input angle.</p>
+<p><img src="/images/fpu/fsrra_error.svg" alt="FSRRA error over the mantissa range"></p>
+<p>FSRRA also stays below 2 ULP everywhere (worst case 1.99), with 67 % of inputs correctly rounded.</p>
+<h2 id="what-does-the-truncation-buy">What does the truncation buy?</h2>
+<p>While the true chip implementation is unknown, here are some approximate numbers via yosys/nand2.</p>
+<p><img src="/images/fpu/area.svg" alt="Rough gate counts"></p>
+<p>The SH-4 block is about 30 % smaller than the correctly rounded fused design, and 28 % smaller than the IEEE composition. About 5,000 of the 8,000 gates saved are in the four multipliers; the rest comes from everything behind them: 28-bit instead of 48-bit products mean the aligners, the four-input adder, the leading-zero counter and the normalizing shifter are all some 20 bits narrower.</p>
+<h3 id="what-about-speed">What about speed?</h3>
+<p>The truncated multipliers don’t have much of a speed advantage.</p>
+<p><img src="/images/fpu/depth.svg" alt="Logic depth per pipeline stage"></p>
+<p>Note these are a simplification, a 90s chip implementation differs from the yosys/nand2 proxy.</p>
+<h2 id="edge-case-behavior">Edge case behavior</h2>
+<p>A few behaviors the manual does not mention:</p>
+<ul>
+<li>Every finite result of all four instructions raises the <em>inexact</em> cause and flag, even <code>1.0 * 1.0</code>;</li>
+<li>Any zero result of FIPR/FTRV also raises <em>underflow</em>, even <code>0 * 0</code></li>
+<li>FSCA and FSRRA trap for any operand due to the inexact flag</li>
+<li>FIPR traps unconditionally on any of the overflow / underflow / inexact enables, FTRV additionally on the invalid enable</li>
+<li>With <code>FPSCR.PR = 1</code> all four instructions are complete no-ops, with registers and status untouched, but they still trap if the right enable bit is set</li>
+<li>With <code>FPSCR.DN = 0</code>, FIPR and FTRV do not raise an FPU error on denormals: they compute with them and return denormal results.</li>
+<li>FSRRA, does trap on a positive denormal</li>
+<li>FTRV Booth-recodes the matrix element; FIPR recodes its second operand. This is important for bit-precision.</li>
+<li>Two infinities of the same sign in FIPR take the sign of product 0, whatever product 0 is. <code>-inf - inf</code> can be <code>+inf</code>.</li>
+</ul>
+<h2 id="pipeline-details">Pipeline details</h2>
+<p>FIPR (1 pitch / 3 latency) / FTRV (4 pitch / 7 latency)</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>four 24 x 24 truncated Booth multipliers      -> four 28-bit product registers  (+2^19, drop 20 bits)</span></span>
+<span class="line"><span>four aligners (shift to the largest exponent, invert if negative: no guard bits, plain truncation)</span></span>
+<span class="line"><span>one four-input adder</span></span>
+<span class="line"><span>one normalise / round stage                   -> the only rounding in the whole instruction</span></span></code></pre>
+<p>FSRRA (3 pitch / 6 latency)</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>node = rounded top 5 bits of the mantissa, dx = the signed remainder</span></span>
+<span class="line"><span>step 1   dx * dx -> sq                dx * REC1 -> linear term</span></span>
+<span class="line"><span>step 2   sq * C2 -> square term       sq * C3   -> I</span></span>
+<span class="line"><span>step 3   I  * dx -> cubic term        </span></span>
+<span class="line"><span>adder: C0 - linear + square - cubic, round once</span></span></code></pre>
+<p>FSCA  (4 pitch; sine latency 6, cos latency 7 reusing the held latches)</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>step 1   dx * dx -> sq      dx * L[cos word]        dx * KC (KC ~ 4 pi, one global constant)</span></span>
+<span class="line"><span>step 2   sq * dx -> cube    (dx * KC) * dx -> J</span></span>
+<span class="line"><span>step 3   cube * Q[cos word] J * L[sin word]</span></span>
+<span class="line"><span>adder: C0 + linear - even - cubic</span></span></code></pre>
+<p>FSCA rom: 1,071 bits; each word holds values derived from one <code>sin(m pi/32)</code>.
+FSRRA rom: 2,550 bits</p>
+<h2 id="timeline">Timeline</h2>
+<p>(This is partially transcribed from the Claude/GPT logs)</p>
+<p>The effort took about two days, roughly 8M tokens of model compute, and significant cpu time to run the exhaustive searches and simulations. I was attentive to the models around 20 hours during that span.</p>
+<p>Fable 5.1 was used as the primary interactive research tool, through the claude code vscode plugin, and GPT 6 Astra / codex was used to cross verify results. Opus 5 was used in “hypercode/swarm” mode to launch two wide explorations in the problem space (~6M tokens were spent this way).</p>
+<h3 id="prehistory">Prehistory</h3>
+<p>An 8.5 GB dump of FSRRA over every positive float, captured from a Dreamcast years ago, and a 32,768-entry FSCA from nullDC.</p>
+<h3 id="day-1-0058--can-you-write-a-c-model-for-the-fsrra-instruction-that-matches-it-bit-for-bit-claude-fable-51">Day 1, 00:58 — “can you write a c++ model for the fsrra instruction, that matches it bit for bit” (Claude Fable 5.1)</h3>
+<p>Within hours: the result depends only on the mantissa and the exponent’s parity; 17 nodes per parity; a cubic; products
+truncated separately; round to nearest on two guard bits. Fitted coefficients reach 99.63 %. Every miss is exactly one
+ULP.</p>
+<h3 id="0713--the-question-that-set-the-direction">07:13 — the question that set the direction</h3>
+<blockquote>
+<p>“could this re-use the same multiplies used for fipr internally -on top of the table-? fipr is a<em>b+c</em>d+e<em>f+g</em>h”</p>
+</blockquote>
+<h3 id="0927-1100--fipr-first-and-soft-float-only">09:27-11:00 — FIPR first, and soft-float only</h3>
+<p>A first hardware test showed the manual’s FIPR pseudo-code is wrong in places (thanks to Bruce for running it for me!)</p>
+<p>I had to get my lazy ass to setup my Dreamcast with a bba for the rest of the testing.</p>
+<p>After a false start with Python floats:</p>
+<blockquote>
+<p>“let’s take a step back. Let’s characterize fipr first, and use c++ and soft fp / bit math, not python / native floats
+to make sure we get this right. I think a dump of 64 M or so of fipr vectors is in order, first?”</p>
+</blockquote>
+<p>That helped the model to correctly validate the implementation using soft-floats. On the same day: 32M
+vectors, 0 mismatches, and the truncated Booth array as the first fully understood piece of silicon.</p>
+<h3 id="1100-1700--fsca-resists">11:00-17:00 — FSCA resists</h3>
+<p>Fitted constants, per-node corrections, piecewise-linear tables, Taylor series, exotic separate units. The model got
+closer and less believable. I pulled the claude back twice/</p>
+<blockquote>
+<p>“my goal for now is understanding how the hardware worked, not a similar-but patched implementation. I think we’re
+getting something fundamentally wrong”</p>
+</blockquote>
+<blockquote>
+<p>“can you write a harness to measure the latency and pitch of instructions from the hw? I do not trust the sim.”</p>
+</blockquote>
+<p>The timing harness gave hard numbers which later fixed the number of multiply steps each microprogram may use.</p>
+<p>At this point I handed over to GPT Astra, which validated the work so far found a couple of bugs. Still no breakthrough.</p>
+<h3 id="1705--can-you-scan-the-internet-and-download-all-related-patents">17:05 — “can you scan the internet and download all related patents”</h3>
+<p>US 6,038,582 shows the block: four multipliers, aligners, a four-input adder, feedback paths. With the FIPR array
+plugged into the FSCA terms <strong>with zero free parameters</strong>, whole-dump mismatches dropped from 490 to 176; FSRRA went from
+0.345 % to 0.021 % once its cubic was evaluated coefficient-first through a feedback latch.</p>
+<p>What remained was small and stubborn: 147 of 32,768 FSCA samples, all in the even (cosine-like) term.</p>
+<h3 id="day-1-1906---day-2-1014--the-opus-5-swarms">Day 1 19:06 -> Day 2 10:14 — the Opus 5 swarms</h3>
+<p>A couple of fresh Opus 5 sessions were told to re-validate everything and try for a breakthrough. They ran several
+multi-agent workflows ~ 250 sub-agents in total. Each family of hypotheses was paired with an
+adversarial verifier. It localised the whole residual to one node-independent latch (“J”), but made no further breakthrough.</p>
+<p>Handing over from there to GPT Astra the question got reframed : “change the question from ‘what correction produces J?’ to ‘which hardware assumption makes J look
+wrong?’”</p>
+<p>The swarms concluded: “the missing quantity must be a stored value” which was rigorous but conditional on a model that
+still contained a wrong assumption. Score: still 147.</p>
+<h3 id="day-2-1015--something-structuraly-wrong-some-bithack-claude-fable-51">Day 2 10:15 — “something structuraly wrong… some ‘bithack’” (Claude Fable 5.1)</h3>
+<blockquote>
+<p>“FSCA, FSRRA and FIPR are very likely to share the same pipeline, just enhanced. Can you implement FIPR, FSCA, FSRRA as
+modular system verilog, and then based on that try to identify what simplifications or structural differences could
+lead to a model that matches”</p>
+</blockquote>
+<p>Writing the three instructions as RTL on one datapath forced every term into “a product register, shifted, into a
+latch”, reproduced FIPR exactly including its latency, and turned the models’ sign conventions into one hardware rule.
+Then several variations were attempted with no breakthrough.</p>
+<h3 id="1321--the-redirect">13:21 — the redirect</h3>
+<blockquote>
+<p>“so this looks like a dead end, for now. would investigating further the fsrra path (to either find a common structure,
+or discover a new structure it may be using that may be also used by the cosine) make sense?”</p>
+</blockquote>
+<p>It did. FSRRA has 512 times more data per node than FSCA and no sign asymmetry. After fixing three wrong table entries,
+its residual showed a clean scaling law: the error grew as 2^k with the model’s normalisation exponent and vanished
+where the exponent was smallest. The silicon never normalises that coefficient; it is a plain
+14-bit fixed-point field. Fixing it exposed a second error it had been hiding: the cubic chain reads the same square
+latch as the square term. FSRRA went exact on 16.7M inputs in both rounding modes, then on all 2.13 billion
+inputs of the old 8.5 GB dump.</p>
+<p>However, Fable 5.1 failed to figure out fsca through the new discoveries. So I handed over to Astra.</p>
+<h3 id="1521---1526--five-minutes-gpt-astra">15:21 -> 15:26 — five minutes (GPT Astra)</h3>
+<blockquote>
+<p>“Make breakthrough progress, by combining all previous results and new knowledge from frssa structure.”</p>
+</blockquote>
+<p>From the Astra log:</p>
+<ul>
+<li>15:21 — baseline reproduces; <em>“One gap remains in the handover: forming the even term from parallel products of ROM
+fields and the signed offset, with both feedback latches shifted by three.”</em></li>
+<li>15:25 — <em>“reusing the complementary word’s <strong>linear coefficient</strong> in place of the assumed sine field lowers one
+candidate to 86 violations.”</em></li>
+<li>15:26 — <em>“zero sine or cosine mismatches across all 65,536 angles in RN and RZ.”</em></li>
+</ul>
+<p>The field all previous attempts had modelled as a stored sine for the even term didn’t exist. The ROM’s linear coefficient
+(sin * pi/2) is reused, the global constant is an economised 4 pi instead of 2 pi^2, and the latches follow FSRRA’s
+shift-by-three structure. The earlier notes even contained indications towards this: the “sine field” was the one coefficient the data
+barely pinned. Lesson learned: <strong>a weakly pinned field is a candidate for not existing.</strong></p>
+<h3 id="day-2-evening--flags-traps-and-the-console-again">Day 2 evening — flags, traps and the console again</h3>
+<blockquote>
+<p>“can you characterize the hardware, by writting a test for that”</p>
+</blockquote>
+<p>Six small programs with an exception handler that records a trap and skips the instruction measured everything the
+captures never covered: special operands, every FPSCR setting, PR = 1, DN = 0, FTRV. That is where the surprises in the
+summary came from, and where FIPR’s denormal arithmetic (1M vectors, exact at the first natural hypothesis) and FTRV’s
+operand roles were figured out.</p>
+<h2 id="the-human-in-the-loop">The human in the loop</h2>
+<p>While i’d like to think i was very useful during this, i gave few indicators and I think I actually led the research astray by
+focusing too much on fsca, thinking its smaller range would be simpler to crack first.</p>
+<p>I also underestimated how “stuck” the models can get around these kind of problems, trying to solve them via mathematical/statistical analysis
+rather than reasoning “what would a 90s enigneer do?”.</p>
+<p>The agents contributed massive volume and rigour: roughly a thousand throwaway source files (38,000 lines of C and C++
+analysis tools), exhaustive scans over millions of structures, exact solvers, adversarial verification, in-place retraction of
+their own wrong claims, and the stamina to try the 657,800th configuration.</p>
+<h2 id="what-is-still-open">What is still open</h2>
+<ul>
+<li>How Hitachi generated the ROM constants. Several fields are biased by a few units. Why?</li>
+<li>Interactions against the parallel IEEE pipeline(s) on the chip</li>
+<li>How was this actually implemented in silicon</li>
+</ul>  </div> </article> </main> <footer data-astro-cid-sz7xmlte> <a href="https://github.com/skmp" data-astro-cid-sz7xmlte>GitHub</a> |
+<a href="https://gitlab.com/skmp" data-astro-cid-sz7xmlte>Gitlab</a> |
+<a href="https://www.linkedin.com/in/skmp/" data-astro-cid-sz7xmlte>LinkedIn</a> |
+<a href="https://www.youtube.com/@poiitidis" data-astro-cid-sz7xmlte>YouTube</a> |
+<a href="https://x.com/poiitidis" data-astro-cid-sz7xmlte>X</a> |
+<a href="https://instagram.com/poiitidis" data-astro-cid-sz7xmlte>Insta</a> </footer>  </body></html>

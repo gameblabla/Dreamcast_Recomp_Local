@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec python3 -I "$(cd "$(dirname "$0")" && pwd)/tools/dcre.py" "$@"

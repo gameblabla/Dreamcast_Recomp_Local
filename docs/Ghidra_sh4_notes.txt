@@ -1,0 +1,227 @@
+ Floating point variables in SH-4
+
+Hi, I'm working on decompiling a Dreamcast game. The decompiler seems to have trouble whenever floating point variables are involved. I've tried setting FPSCR_SZ and FPSCR_PR (the registers controlling floating point precision) to zero throughout the file, as I do not believe they change. Even with this, however, I get code like:
+
+cVar19 = '\0';
+/* some code removed but it doesn't affect cVar19 */  
+if (cVar19 == '\0') {
+  in_dr2 = in_dr2 & 0xffffffff00000000 | (ulonglong)uVar14;
+  uVar12 = 0x3e400000;
+}
+else {
+  in_xd2 = CONCAT44(in_PR,uVar14);
+}
+
+The first problem is that cVar19 is set to zero so the else branch is never taken. This results in the code being much larger than it needs to be. The second problem is that it insists on using double precision variables even though the registers are set to single precision. The result is 64-bit variables that are actually concatenations of two 32-bit variables, making the code needlessly complicated to read. Does anyone know if there is a way I can fix these issues?
+
+EDIT: Here is an example of an entire function, with the corresponding assembly:
+
+void FUN_8c0a0c62(undefined4 param_1,undefined4 param_2,int param_3,int param_4)
+
+{
+  int iVar1;
+  int iVar2;
+  double dVar3;
+  float fVar4;
+  double dVar5;
+  undefined4 uVar6;
+  double in_xd2;
+  double in_xd4;
+  double dVar7;
+  double in_xd6;
+  char cVar8;
+  char cVar9;
+  
+  cVar9 = '\0';
+  cVar8 = '\0';
+  iVar2 = 5;
+  iVar1 = FUN_8c0ac700();
+  iVar2 = mod(param_4,iVar2);
+  if (cVar9 == '\0') {
+    dVar3 = (double)CONCAT44(0x3e400000,param_1);
+  }
+  else {
+    dVar3 = 1.192093171953346e-07;
+  }
+  dVar5 = in_xd2;
+  if (cVar9 == '\0') {
+    dVar5 = (double)CONCAT44((float)iVar2,param_2);
+  }
+  if (cVar8 == '\0') {
+    dVar5 = (double)((ulonglong)dVar5 & 0xffffffff |
+                    (ulonglong)
+                    (uint)((float)((ulonglong)dVar5 >> 0x20) * (float)((ulonglong)dVar3 >> 0x20)) <<
+                    0x20);
+  }
+  else {
+    dVar5 = dVar5 * dVar3;
+  }
+  dVar7 = in_xd2;
+  if (cVar9 == '\0') {
+    dVar3 = (double)((ulonglong)dVar3 & 0xffffffff00000000 | (ulonglong)(uint)(float)iVar1);
+    dVar7 = in_xd4;
+  }
+  if (cVar8 == '\0') {
+    dVar3 = (double)((ulonglong)dVar3 & 0xffffffff00000000 |
+                    (ulonglong)(uint)(SUB84(dVar3,0) * (float)((ulonglong)dVar3 >> 0x20)));
+  }
+  else {
+    dVar3 = dVar3 * dVar3;
+  }
+  if (cVar9 == '\0') {
+    *(int *)(param_3 + 0xc) = (int)((ulonglong)dVar5 >> 0x20);
+    dVar5 = (double)((ulonglong)dVar5 & 0xffffffff00000000 | (ulonglong)(uint)(float)(iVar1 + 1));
+  }
+  else {
+    *(double *)(param_3 + 0xc) = dVar5;
+    in_xd6 = in_xd2;
+  }
+  if (cVar9 == '\0') {
+    *(int *)(param_3 + 0x10) = SUB84(dVar3,0);
+  }
+  else {
+    *(double *)(param_3 + 0x10) = dVar7;
+  }
+  fVar4 = (float)((ulonglong)dVar3 >> 0x20);
+  if (cVar8 == '\0') {
+    dVar5 = (double)((ulonglong)dVar5 & 0xffffffff00000000 |
+                    (ulonglong)(uint)(SUB84(dVar5,0) * fVar4));
+  }
+  else {
+    dVar5 = dVar5 * dVar3;
+  }
+  if (cVar9 == '\0') {
+    *(int *)(param_3 + 0x24) = (int)((ulonglong)dVar5 >> 0x20);
+    in_xd2 = (double)((ulonglong)dVar5 & 0xffffffff | (ulonglong)(uint)(float)(iVar2 + 1) << 0x20);
+  }
+  else {
+    *(double *)(param_3 + 0x24) = dVar5;
+  }
+  if (cVar8 == '\0') {
+    in_xd2 = (double)((ulonglong)in_xd2 & 0xffffffff |
+                     (ulonglong)(uint)((float)((ulonglong)in_xd2 >> 0x20) * fVar4) << 0x20);
+  }
+  else {
+    in_xd2 = in_xd2 * dVar3;
+  }
+  if (cVar9 == '\0') {
+    *(int *)(param_3 + 0x28) = SUB84(in_xd2,0);
+  }
+  else {
+    *(double *)(param_3 + 0x28) = in_xd6;
+  }
+  uVar6 = (undefined4)((ulonglong)in_xd2 >> 0x20);
+  if (cVar9 == '\0') {
+    *(undefined4 *)(param_3 + 0x3c) = uVar6;
+    *(int *)(param_3 + 0x40) = SUB84(dVar3,0);
+    *(undefined4 *)(param_3 + 0x54) = uVar6;
+    *(int *)(param_3 + 0x58) = SUB84(in_xd2,0);
+  }
+  else {
+    *(double *)(param_3 + 0x3c) = in_xd2;
+    *(double *)(param_3 + 0x40) = dVar7;
+    *(double *)(param_3 + 0x54) = in_xd2;
+    *(double *)(param_3 + 0x58) = in_xd6;
+  }
+  return;
+}
+
+and the assembly:
+
+        8c0a0c62 22 4f           sts.l      PR,@-r15=>local_4
+             assume r12 = <UNKNOWN>
+        8c0a0c64 c0 d3           mov.l      ->FUN_8c0ac700,r3                                = 8c0ac700
+        8c0a0c66 53 61           mov        r5,r1
+        8c0a0c68 05 e7           mov        #0x5,r7
+        8c0a0c6a 0b 43           jsr        @r3=>FUN_8c0ac700                                undefined FUN_8c0ac700()
+        8c0a0c6c 73 60           _mov       r7,r0
+        8c0a0c6e 4f d2           mov.l      ->mod,r2                                         = 8c0ac85c
+        8c0a0c70 53 61           mov        r5,r1
+        8c0a0c72 03 66           mov        r0,r6
+        8c0a0c74 0b 42           jsr        @r2=>mod                                         int mod(int num, int modulus)
+        8c0a0c76 73 60           _mov       r7,r0
+        8c0a0c78 03 65           mov        r0,r5
+        8c0a0c7a 5a 45           lds        r5,FPUL
+        8c0a0c7c 4c c7           mova       DAT_8c0a0db0,r0                                  = 3E400000h
+        8c0a0c7e 08 f4           fmov.s     @r0=>DAT_8c0a0db0,fr4                            = 3E400000h
+        8c0a0c80 01 75           add        #0x1,r5
+        8c0a0c82 2d f3           float      FPUL,fr3
+        8c0a0c84 5a 46           lds        r6,FPUL
+        8c0a0c86 01 76           add        #0x1,r6
+        8c0a0c88 0c e0           mov        #0xc,r0
+        8c0a0c8a 3c f6           fmov       fr3,fr6
+        8c0a0c8c 2d f3           float      FPUL,fr3
+        8c0a0c8e 5a 46           lds        r6,FPUL
+        8c0a0c90 42 f6           fmul       fr4,fr6
+        8c0a0c92 3c f5           fmov       fr3,fr5
+        8c0a0c94 2d f3           float      FPUL,fr3
+        8c0a0c96 5a 45           lds        r5,FPUL
+        8c0a0c98 42 f5           fmul       fr4,fr5
+        8c0a0c9a 67 f4           fmov       fr6,@(r0,r4)
+        8c0a0c9c 10 e0           mov        #0x10,r0
+        8c0a0c9e 3c f7           fmov       fr3,fr7
+        8c0a0ca0 2d f3           float      FPUL,fr3
+        8c0a0ca2 57 f4           fmov       fr5,@(r0,r4)
+        8c0a0ca4 0c e0           mov        #0xc,r0
+        8c0a0ca6 18 74           add        #0x18,r4
+        8c0a0ca8 42 f7           fmul       fr4,fr7
+        8c0a0caa 67 f4           fmov       fr6,@(r0,r4)
+        8c0a0cac 10 e0           mov        #0x10,r0
+        8c0a0cae 3c f6           fmov       fr3,fr6
+        8c0a0cb0 42 f6           fmul       fr4,fr6
+        8c0a0cb2 77 f4           fmov       fr7,@(r0,r4)
+        8c0a0cb4 0c e0           mov        #0xc,r0
+        8c0a0cb6 18 74           add        #0x18,r4
+        8c0a0cb8 67 f4           fmov       fr6,@(r0,r4)
+        8c0a0cba 10 e0           mov        #0x10,r0
+        8c0a0cbc 57 f4           fmov       fr5,@(r0,r4)
+        8c0a0cbe 0c e0           mov        #0xc,r0
+        8c0a0cc0 18 74           add        #0x18,r4
+        8c0a0cc2 67 f4           fmov       fr6,@(r0,r4)
+        8c0a0cc4 10 e0           mov        #0x10,r0
+        8c0a0cc6 26 4f           lds.l      @r15+,PR=>local_4
+        8c0a0cc8 0b 00           rts
+        8c0a0cca 77 f4           _fmov      fr7,@(r0,r4)
+
+Upvote
+9
+Downvote
+4
+Go to comments
+Repost
+Sort by:
+Best
+Search Comments
+Expand comment search
+Comments Section
+u/theinternetftw avatar
+theinternetftw
+•
+2y ago
+• Edited 2y ago
+
+I come from the future, having solved this issue, and I wanted to share what I did with anyone else who runs into this post.
+
+The reason Ghidra refuses to respect manually setting FPSCR_SZ and FPSCR_FR is that it doesn't know what happens to FPSCR during any of the other function calls that happen *within this function*, and so it can't reliably say that FPSCR remains the same once any function call occurs. You'd think that e.g. setting a register value for the entire address range would solve that, but it doesn't; Ghidra's decompiler only assesses manually set register values at the beginning of a function.
+
+To determine what registers are unaffected by function calls, Ghidra uses calling convention specs. We just need to add a custom calling convention where FPSCR_FR and FPSCR_SZ survive the function call.
+
+So let's do that.
+
+First, go to where Ghidra is installed, and then look in Ghidra/Processors/SuperH/data/languages and open up "superh.cspec" -- it's actually an XML file. In there you'll find a start tag that says <prototype name="__stdcall" extrapop="0" stackshift="0">
+
+Grab that entire part of the XML tree and put it in a new file called __stdcall_noclobber_fpscr.xml.
+
+Now in that new file, change the <prototype> tag's name attribute to __stdcall_noclobber_fpscr and add registers named fpscr, fpscr_sz, and fpscr_pr to the list of registers in the <unaffected> tag. Ghidra's not quite smart enough to extrapolate FPSCR_SZ not changing from FPSCR being static, so you have to list both the actual register and those aliases.
+
+In Ghidra with the program you're working on open in the CodeBrowser, go to "Edit -> Options for '$PROGRAM_NAME_HERE'" and find "Specification Extensions" -- This will let you add your own custom calling conventions. Click "Import...", select that XML file you just made, then click Apply.
+
+Now set the calling convention for each function by right clicking on each call and editing the function signature if there's a definition somewhere (you can of course edit it at the definition site as well), or if there's no definition at all, you can override the signature. However you do it, set the calling convention to __stdcall_noclobber_fpscr.
+
+Once you've done that and made sure the registers are manually set before the function starts, the code for the irrelevant branches should be properly removed.
+Upvote
+1
+Downvote
+Reply
+Award
+Share

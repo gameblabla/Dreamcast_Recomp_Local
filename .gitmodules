@@ -1,0 +1,6 @@
+[submodule "third_party/dc-re-ghidra"]
+	path = third_party/dc-re-ghidra
+	url = https://github.com/iamsh4/dc-re-ghidra
+[submodule "third_party/flycast"]
+	path = third_party/flycast
+	url = https://github.com/flyinghead/flycast

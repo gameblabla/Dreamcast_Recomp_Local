@@ -1,0 +1,14 @@
+# retail and third-party material: supplied by the user, never committed
+/game/
+/work/
+/project.env
+/third_party/flycast-bin/
+*.iso
+*.gdi
+*.cue
+*.cdi
+*.chd
+*.bin
+*.BIN
+*.o
+__pycache__/
