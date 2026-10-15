@@ -157,7 +157,7 @@ def launch(args, root):
     if not game or not os.path.exists(game):
         sys.exit('dcprobe: disc image not found: pass --game PATH.cue (or GAME= in project.env)')
     binp = args.flycast or next((p for p in (os.path.join(root, 'third_party', 'flycast-bin', 'flycast-probe'), os.path.join(root, 'Dreamcast_Recomp_Local', 'third_party', 'flycast-bin', 'flycast-probe'),
-                                              os.path.join(root, 'third_party', 'flycast-bin', 'flycast'), os.path.join(root, 'Dreamcast_Recomp_Local', 'third_party', 'flycast-bin', 'flycast')) if os.path.exists(p)), None)   # flycast-probe = our patched build (tools/build_flycast_probe.sh)
+                                              os.path.join(root, 'third_party', 'flycast-bin', 'flycast'), os.path.join(root, 'Dreamcast_Recomp_Local', 'third_party', 'flycast-bin', 'flycast')) if os.path.exists(p)), None)   # flycast-probe = our patched build (tools/build_flycast.sh)
     if not binp:
         sys.exit('dcprobe: flycast binary not found (third_party/flycast-bin/flycast); see docs/FLYCAST_NOTES.md to build it with -DENABLE_GDB_SERVER=ON')
     cfg = os.path.join(root, 'work', 'flycast_cfg')
