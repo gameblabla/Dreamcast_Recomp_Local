@@ -16,7 +16,7 @@ Listing format (Ghidra export): `8c06fac4:<TAB>mnemonic operands<TAB>; comment`,
 """
 import argparse, os, re, struct, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 LINE = re.compile(r'^([0-9a-f]{8}):\s+(_?)(\S+)\s*([^;]*?)\s*(?:;\s*(.*))?$')
 
@@ -58,6 +58,8 @@ def reg_reads_writes(i):
             return rd, regs(a[1])
     if op in ('jsr', 'jmp', 'braf', 'bsrf'):
         return regs(i['args']), []
+    if op.startswith(('mul', 'dmul', 'mac')) and len(a) == 2:      # multiply/MAC read both operands and write only MACH/MACL (never a general register)
+        return regs(a[0]) + regs(a[1]), []
     if op in ('rts', 'nop') or op.startswith(('bra', 'bt', 'bf', 'bsr', 'sts', 'lds')):
         return [], []
     if op in ('fldi0', 'fldi1', 'float', 'ftrc') and a:
@@ -113,8 +115,10 @@ def main():
         mark = '>' if i['addr'] in targets else ' '
         print('%s%08x: %s%-8s %-28s%s' % (mark, i['addr'], '_' if i['delay'] else ' ', i['op'], i['args'], note + ('   ; ' + i['cmt'] if i['cmt'] and not note else '')))
 
+    f_lo, f_hi = min(x['addr'] for x in ins), max(x['addr'] for x in ins)
     # constant propagation, reset at branch targets
     state = {}
+    maybe = {}         # register -> last instruction text that wrote it on SOME path (state is cleared at branch targets)
     def val(r):
         return state.get(r, '(inherited)')
     calls = []
@@ -165,7 +169,10 @@ def main():
                 state[r] = '<%s %s @%08x>' % (op, ar, i['addr'])
         for r in wr:
             written.add(r)
-        if op in ('jsr', 'bsr'):
+            maybe[r] = '%s %s @%08x' % (op, ar, i['addr'])
+        tgt0 = re.search(r'([0-9a-f]{8})<([^>]*)>', i['cmt'])
+        is_tail = op == 'jmp' and tgt0 is not None and not (f_lo <= int(tgt0.group(1), 16) <= f_hi)   # jmp @rN to another function = tail call
+        if op in ('jsr', 'bsr') or is_tail:
             # arguments include the delay slot instruction (executes before the callee starts)
             snap = dict(state)
             if idx + 1 < len(ins) and ins[idx + 1]['delay']:
@@ -180,8 +187,11 @@ def main():
                     _, w2 = reg_reads_writes(ds)
                     for r in w2:
                         snap[r] = '<%s %s (delay slot)>' % (dop, dar)
-            tgt = re.search(r'([0-9a-f]{8})<([^>]*)>', i['cmt'])
-            calls.append((i['addr'], tgt.group(1) if tgt else '?', tgt.group(2) if tgt else '?', snap))
+            tgt = tgt0
+            for k in range(4, 8):          # registers not known on this path but written on another path are NOT plain "inherited"
+                if 'r%d' % k not in snap and 'r%d' % k in maybe:
+                    snap['r%d' % k] = '(set on SOME path only: %s)' % maybe['r%d' % k]
+            calls.append((i['addr'], tgt.group(1) if tgt else '?', ('TAIL ' if is_tail else '') + (tgt.group(2) if tgt else '?'), snap))
             clear_pending = True           # caller-saved registers die at a call (after its delay slot runs)
         if op in ('bt', 'bf', 'bt/s', 'bf/s', 'bra') and re.match(r'0x[0-9a-f]+', ar):
             t = int(ar.split()[0], 16)
@@ -197,7 +207,9 @@ def main():
     # suggested autodiff "callees" block (ints = r4.. count up to the last register the caller sets; floats likewise)
     sug = {}
     for addr, t, name, st in calls:
-        ni = max([k - 3 for k in range(4, 8) if 'r%d' % k in st] or [0])
+        ni = max([k - 3 for k in range(4, 8) if 'r%d' % k in st and not str(st['r%d' % k]).startswith('(set on SOME')] or [0])
+        if name.startswith('TAIL '):           # a tail call hands the caller's whole register file to the callee: compare all of r4-r7
+            ni = 4
         nf = max([k - 3 for k in range(4, 12) if 'fr%d' % k in st] or [0])
         o = sug.setdefault(t, [name, 0, 0])
         o[1], o[2] = max(o[1], ni), max(o[2], nf)
@@ -206,6 +218,10 @@ def main():
         print('# passed through; memset/memcpy/strlen-like callees: delete them from the list and do the work inline in the port)')
         for t, (name, ni, nf) in sug.items():
             print('  {"addr": "%s", "ints": %d, "floats": %d},   // %s' % (t[-8:], ni, nf, name))
+        if any(n.startswith('TAIL ') for _, _, n, _ in calls):
+            print('# TAIL CALL: `jmp @rN` to another function. The callee receives r4-r7/fr4-fr7 exactly as they are at the jmp (including values set on only one path')
+            print('# and values inherited from the caller). The port must pass the same values, and the spec must compare them (ints: 4). The call is the LAST thing')
+            print('# the function does: no code after it, and the callee\'s return value is this function\'s return value.')
     print('\n# SIGNATURE (params = read before written)')
     print('reads-before-write:', ', '.join('%s@%08x' % kv for kv in sorted(first_read.items())) or 'none (no register args)')
     last = max((k for k, i in enumerate(ins) if i['op'] == 'rts'), default=None)

@@ -27,8 +27,10 @@ SPEC.json keys (addresses are hex strings, no 0x needed):
 Environment: AD_SANITIZE=1 (build the port with UBSan+ASan: signed overflow, bad shifts, misaligned access [UBSan 'alignment' check; the SH-4 raises an address error where x86 silently works], out-of-bounds reads become failures), AD_CFLAGS, AD_GHIDRA_HEADLESS, AD_GHIDRA_PROJECT, AD_PROGRAM (project/program names), AD_SCRIPTS (DrEmu.java dir), AD_TMP.
 """
 import argparse, json, os, random, re, shutil, subprocess, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import adcheck
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 BIN_DEFAULT = os.environ.get('DR_BIN', os.path.join(ROOT, 'game/1ST_READ.BIN'))
 HEADLESS = os.environ.get('AD_GHIDRA_HEADLESS', '/usr/libexec/ghidra/support/analyzeHeadless')
@@ -131,6 +133,8 @@ def parse_result(line):
             regs[k] = v
         elif re.match(r'^[CAD][0-9a-f]+=', t):
             ev.append(t)
+        elif re.match(r'^F[0-9a-f]+=', t):
+            regs['F'] = regs.get('F', '') + ' ' + t          # full argument registers of stubbed calls: analysed separately, never diffed
         elif t.startswith('ABI='):
             regs['ABI'] = t[4:]
         elif t.startswith('X='):
@@ -215,11 +219,28 @@ def make_mutants(path, rnd, limit):
     return src, muts[:limit]
 
 
+def mutation_targets(spec, srcs):
+    """Which port sources are mutated: spec port.mutate, else the files named after the function (nd_073f72.c), else all.
+    Shared library sources (soft-float, rng...) listed in port.sources are NOT mutated here: one function's inputs can never exercise every line of a
+    library, so those mutants would be unkillable noise (this made a correct port look unprovable); the library has its own unit tests + mutation check."""
+    names = spec['port'].get('mutate')
+    if names:
+        sel = [x for x in srcs if any(x.endswith(n) for n in names)]
+    else:
+        key = str(spec['func']).lower().replace('0x', '')[-6:]
+        sel = [x for x in srcs if key in os.path.basename(x).lower()]
+    return sel or srcs
+
+
 def run_mutants(spec, srcs, emu, run_port, tmp, rnd, limit, cases, *_):
     killed = survived = equiv = 0
     surv = []
+    targets = mutation_targets(spec, srcs)
+    print('mutating: ' + ', '.join(os.path.basename(x) for x in targets) + ('' if len(targets) == len(srcs) else '   (other sources are libraries: covered by their own unit tests; list files in port.mutate to change this)'))
     for si, path in enumerate(srcs):
-        src, muts = make_mutants(path, rnd, max(1, limit // max(1, len(srcs))))
+        if path not in targets:
+            continue
+        src, muts = make_mutants(path, rnd, max(1, limit // max(1, len(targets))))
         for k, (a_, b_, rep, desc) in enumerate(muts):
             mp = os.path.join(tmp, 'mut_%d_%d_%s' % (si, k, os.path.basename(path)))
             open(mp, 'w').write(src[:a_] + rep + src[b_:])
@@ -232,7 +253,7 @@ def run_mutants(spec, srcs, emu, run_port, tmp, rnd, limit, cases, *_):
                     if e.startswith('FAULT'):
                         continue
                     er, eev, ereg = parse_result(e); pr, pev, preg = parse_result(o)
-                    if (spec.get('check_ret', True) and er != pr) or eev != pev or any(diff_region(ereg[q], preg.get(q, '')) for q in ereg if q not in ('X', 'T')):
+                    if (spec.get('check_ret', True) and er != pr) or eev != pev or any(diff_region(ereg[q], preg.get(q, '')) for q in ereg if q not in ('X', 'T', 'F', 'ABI')):
                         dead = True; break
             tagd = '%s:%d  %s' % (os.path.basename(path), line, desc)
             if dead:
@@ -244,6 +265,7 @@ def run_mutants(spec, srcs, emu, run_port, tmp, rnd, limit, cases, *_):
     print('mutants: %d killed, %d SURVIVED, %d declared equivalent' % (killed, survived, equiv))
     for sline in surv:
         print('  SURVIVED ' + sline)
+        print('      hint: ' + adcheck.mutation_hint(sline.split('  ', 1)[1] if '  ' in sline else sline))
     if surv:
         print('  -> a surviving mutant means the inputs cannot tell that line apart from the original: strengthen the spec (boundary values')
         print('     for that comparison / constant, loops that iterate >1 time, both branch outcomes) until it is killed. ONLY if it is provably')
@@ -267,17 +289,47 @@ def main():
     binp = img.get('bin', BIN_DEFAULT)
     image = open(binp, 'rb').read() if os.path.exists(binp) else b''
     base = int(img.get('base', os.environ.get('DR_BASE', '0x8c010000')), 16)
+    errs = adcheck.validate_spec(spec, ROOT)
+    if errs:
+        sys.exit('SPEC ERROR(S) in %s:\n  - ' % a.spec + '\n  - '.join(errs))
     func = spec['func']
     regions = spec['regions']
     callees = spec.get('callees', [])
+    try:
+        sys.path.insert(0, HERE)
+        import dcfacts
+        os.environ.setdefault('DR_ASM_DIR', spec.get('asm_dir', ''))
+        facts = dcfacts.facts(hx(func))
+    except Exception as ex:
+        facts = None
+        print('note: retail facts unavailable (%s); spec lint is limited' % str(ex).split('\n')[0][:120])
+    if facts and any(v == 'auto' for v in spec.get('args', {}).values()):     # "auto": boundary values harvested from the asm + random words
+        pool = adcheck.auto_pool(facts, random.Random(1234), rng=spec.get('auto_range'))
+        spec['args'] = {k: (pool if v == 'auto' else v) for k, v in spec['args'].items()}
+    elif any(v == 'auto' for v in spec.get('args', {}).values()):
+        sys.exit('"auto" args need the retail asm facts (./dcre export first)')
+    lint_errs, lint_warns = adcheck.lint(spec, facts)
 
-    warn = []
+    warn = list(lint_warns)
     if ncase < 20:
         warn.append('only %d cases: use >= 40 (weak coverage)' % ncase)
     if all(r.get('fill', 'edge') == 'zero' and not r.get('patch') and not r.get('word_choice') for r in regions):
         warn.append('every region is fill=zero with no patch/word_choice: inputs never vary, use "edge" or "rand"')
     if not spec.get('args') and not any(r.get('fill', 'edge') != 'zero' for r in regions):
         warn.append('no register args and no varied memory: the test cannot distinguish conditional from unconditional code')
+    if ncase < adcheck.FLOOR_CASES:
+        warn.append('below the case floor (%d < %d); the floor is not negotiable, fix the port or strengthen inputs instead' % (ncase, adcheck.FLOOR_CASES))
+    if a.mutate and a.mutate < adcheck.FLOOR_MUTANTS:
+        warn.append('below the mutant floor (%d < %d)' % (a.mutate, adcheck.FLOOR_MUTANTS))
+    fp = adcheck.fingerprint(spec, ncase, a.mutate, a.seed if a.seed is not None else spec.get('seed', 1))
+    led = adcheck.ledger_load(ROOT, func)
+    best = adcheck.ledger_best(led)
+    if best:
+        wk = adcheck.weaker(best['fp'], fp)
+        if wk and os.environ.get('AD_ALLOW_WEAKER'):
+            print('NOTE: AD_ALLOW_WEAKER is set: weakening allowed (%s). The ledger records the override and `claims` will not accept this run as a proof.' % '; '.join(wk))
+        if wk and not os.environ.get('AD_ALLOW_WEAKER'):
+            warn.append('SPEC WEAKENED compared with the strongest earlier run (%s): %s. A mismatch is a port bug; weakening the spec to hide it is not allowed.' % (best['time'], '; '.join(wk)))
     for w in warn:
         print('WARNING (spec too weak): ' + w)
     # ---- build the case set
@@ -289,6 +341,7 @@ def main():
         toks += ['wbytes:%x=%s' % (ad, m.hex()) for ad, m in mem]
         for c in callees:
             toks.append('callog=%s:%d:%d' % (c['addr'], c.get('ints', 0), c.get('floats', 0)))
+            toks.append('fullog=' + c['addr'])
             if c.get('ret'):
                 toks.append('skipseq=%s:%s' % (c['addr'], ','.join('%x' % (v & 0xffffffff) for v in c['ret'])))
             else:
@@ -321,7 +374,14 @@ def main():
         except subprocess.TimeoutExpired:
             return None, 'timeout'
         if cr.returncode:
-            return None, 'port driver crashed (exit %d):\n%s' % (cr.returncode, cr.stderr[-2000:])
+            hint = ''
+            if 'outside every declared region' in cr.stderr:
+                hint = '\n  -> the PORT (or wrapper) touched memory the spec does not declare. ' + ' '.join(adcheck.explain_fault(cr.stderr, spec))
+            elif 'not declared in the spec' in cr.stderr:
+                hint = '\n  -> the port calls a callee the spec does not list: add it to "callees" (hex address) after checking it in ./dcre annotate'
+            elif 'runtime error' in cr.stderr:
+                hint = '\n  -> undefined behaviour in the port (UBSan): fix the port; do not weaken the spec'
+            return None, 'port driver crashed (exit %d):\n%s%s' % (cr.returncode, cr.stderr[-2000:], hint)
         return cr.stdout.split('\n'), ''
 
     srcs = [os.path.join(ROOT, x) for x in port.get('sources', [])]
@@ -341,6 +401,8 @@ def main():
             fault += 1
             if fault <= 2:
                 print('case %d FAULT: %s\n  (a read/write outside the declared regions, an unstubbed callee, or an infinite loop)' % (i, e[:300]))
+                for x in adcheck.explain_fault(e, spec):
+                    print('  -> ' + x)
             continue
         er, eev, ereg = parse_result(e)
         pr, pev, preg = parse_result(o)
@@ -350,11 +412,14 @@ def main():
         if eev != pev:
             j = next((k for k in range(max(len(eev), len(pev))) if (eev[k] if k < len(eev) else None) != (pev[k] if k < len(pev) else None)), 0)
             why.append('call log differs at call #%d (callee-addr=args): retail=%s port=%s' % (j, eev[j] if j < len(eev) else '<none>', pev[j] if j < len(pev) else '<none>'))
+            why.append('   decoded: retail %s | port %s' % (adcheck.decode_event(eev[j], spec, facts) if j < len(eev) else '<none>', adcheck.decode_event(pev[j], spec, facts) if j < len(pev) else '<none>'))
         for k in ereg:
             if k == 'T':
                 continue
             if k == 'ABI':
                 abi_seen.update(ereg[k].split(','))
+                continue
+            if k == 'F':
                 continue
             if k == 'X':
                 covered.update(int(x, 16) for x in ereg[k].split(',') if x)
@@ -373,6 +438,9 @@ def main():
                 if ereg.get('T'):
                     print('   retail control-flow jumps (instruction addresses where execution was not sequential): ' + compress_trace(ereg['T'])[:700])
                     print('   -> compare with the annotated listing: this is the path the retail code took for these inputs; make your port take the same path and the same call order')
+    unchecked = adcheck.unchecked_args(spec, [adcheck.f_events(e) for e in emu if not e.startswith('FAULT')])
+    for u in unchecked:
+        print('UNCHECKED CALLEE ARGUMENT: ' + u)
     if abi_seen:
         print('ABI NOTE: the retail function returns with %s changed (callee-saved r8-r14 / sp r15). That is NOT the standard SH-4 C convention:' % ','.join(sorted(abi_seen)))
         print('   it is hand-written asm or relies on its caller (register-passing helper, longjmp-like code). The port signature must model it;')
@@ -408,10 +476,16 @@ def main():
     if bad: reasons.append('%d mismatches (a mismatch is ALWAYS a port bug: fix the port, never weaken the spec)' % bad)
     if fault: reasons.append('%d emulator faults' % fault)
     if uncovered: reasons.append('retail instructions never executed')
+    if unchecked: reasons.append('callee argument registers that vary are not compared')
     if warn and not uncovered: reasons.append('weak spec')
     if mrc is None: reasons.append('mutation check not run (add --mutate)')
     elif mrc: reasons.append('mutants survived (strengthen the inputs until all are killed)')
-    print('RESULT: PROVEN' if not reasons else 'RESULT: NOT PROVEN -- ' + '; '.join(reasons))
+    result = 'RESULT: PROVEN' if not reasons else 'RESULT: NOT PROVEN -- ' + '; '.join(reasons)
+    print(result)
+    try:
+        adcheck.ledger_save(ROOT, led, a.spec, spec, fp, srcs, result, not reasons, os.path.join(ROOT, port['wrapper']))
+    except Exception as ex:
+        print('note: proof ledger not written: %s' % ex)
     sys.exit(0 if not reasons else 1)
 
 

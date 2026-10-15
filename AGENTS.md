@@ -13,7 +13,9 @@ Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by functi
 ## Per function
 - Pick with `./dcre next` / `./dcre slice ADDR`. Load skill `decomp-function` and follow it literally.
 - Original compiler available (`./dcre cc find`, SHC from the SDK)? also skill `byte-matching`; `bytematch` prints `compiler=SHC|GCC(fallback)`, only SHC counts as a match. Always finish with skill `ub-and-old-compilers`.
+- Start the spec with `./dcre specgen ADDR` (never hand-write a weaker one), run `./dcre lint ADDR PORT.c --spec SPEC` before the emulator. A tail call (`TAIL` in `./dcre annotate`) hands r4-r7/fr4-fr7 to its callee: compare every register the callee reads. Details and every failure it prevents: docs/GUARDRAILS.md.
 - Proof: `AD_SANITIZE=1 ./dcre autodiff SPEC --mutate` -> `RESULT: PROVEN`. Quote that line in your report. Anything else is NOT DONE.
+- `./dcre claims` must list nothing: never write CONFIRMED/PROVEN without a PROVEN ledger entry. `AD_ALLOW_WEAKER` is for humans.
 - Never weaken a spec, change seeds/case counts, or delete an input to make a mismatch disappear. A mismatch is a port bug.
 - Name the file with the address (`port/fn_8cXXXXXX.c`) so `./dcre status` counts it. Mark facts CONFIRMED (proven by a tool line) vs HYPOTHESIS.
 

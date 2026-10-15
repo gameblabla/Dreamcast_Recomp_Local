@@ -102,6 +102,7 @@ public class DrEmu extends GhidraScript {
 		Map<Long, Integer> skipHits = new HashMap<>();
 		Map<Long, Long> skipFr0 = new HashMap<>();   // skipfr0=<addr>:<bits>: skipped callee returns with fr0 = bits
 		Set<Long> skipSin = new HashSet<>(), skipCos = new HashSet<>();   // skipsin / skipcos: skipped callee returns with fr0 = FSCA-model sin / cos of r4
+		java.util.Set<Long> fullLogs = new java.util.HashSet<>();   // fullog=<addr>: log ALL argument registers (r4-r7, fr4-fr7) at entry of a skipped callee, to see what the spec does not compare
 		Map<Long, int[]> callLog = new HashMap<>();   // callog=<addr>:<nint>:<nfloat>: entry values logged for a skipped callee
 		StringBuilder watchLog = new StringBuilder();
 		boolean cover = false;                        // cover: log every distinct executed (non-stubbed) pc as " X=<hex>,<hex>,.." (instruction coverage for autodiff)
@@ -127,6 +128,7 @@ public class DrEmu extends GhidraScript {
 			else if (k.equals("skipfr0")) { int c = v.indexOf(':'); long a = Long.parseLong(v.substring(0, c), 16); skipFr0.put(a, Long.parseLong(v.substring(c + 1), 16)); skips.add(a); }
 			else if (k.equals("skipsin")) { long a = Long.parseLong(v, 16); skipSin.add(a); skips.add(a); }
 			else if (k.equals("skipcos")) { long a = Long.parseLong(v, 16); skipCos.add(a); skips.add(a); }
+			else if (k.equals("fullog")) fullLogs.add(Long.parseLong(v, 16));
 			else if (k.equals("callog")) { String[] p = v.split(":"); callLog.put(Long.parseLong(p[0], 16), new int[] {Integer.parseInt(p[1]), Integer.parseInt(p[2])}); }
 			else if (k.equals("argstack")) { int c = v.indexOf(':'); argStack.put(Long.parseLong(v.substring(0, c), 16), Integer.parseInt(v.substring(c + 1))); }   // argstack=<addr>:<n>: on entry of a skipped callee log r4..r7 and n words at [SP] (stack args 5..)
 			else if (k.equals("skipstat")) {
@@ -179,6 +181,10 @@ public class DrEmu extends GhidraScript {
 							watchLog.append(Long.toHexString((b[0] & 0xffL) | ((b[1] & 0xffL) << 8) | ((b[2] & 0xffL) << 16) | ((b[3] & 0xffL) << 24))).append(",");
 						}
 					}
+					if (fullLogs.contains(pcNow)) {
+						watchLog.append(" F").append(Long.toHexString(pcNow)).append("=");
+						for (String rn : new String[] {"r4","r5","r6","r7","fr4","fr5","fr6","fr7"}) watchLog.append(Long.toHexString(emu.readRegister(rn).longValue() & 0xffffffffL)).append(",");
+					}
 					if (callLog.containsKey(pcNow)) {                  // callog also applies to skipret (scn_arg stub): same " C<addr>=" entry-value format
 						int[] nn = callLog.get(pcNow);
 						watchLog.append(" C").append(Long.toHexString(pcNow)).append("=");
@@ -211,6 +217,10 @@ public class DrEmu extends GhidraScript {
 						int h = statHits.merge(pcNow, 1, Integer::sum) - 1;
 						long buf = emu.readRegister("r5").longValue() & 0xffffffffL;
 						emu.writeMemory(toAddr(buf + 0x18), le(seq[Math.min(h, seq.length - 1)], 4));
+					}
+					if (fullLogs.contains(pcNow)) {
+						watchLog.append(" F").append(Long.toHexString(pcNow)).append("=");
+						for (String rn : new String[] {"r4","r5","r6","r7","fr4","fr5","fr6","fr7"}) watchLog.append(Long.toHexString(emu.readRegister(rn).longValue() & 0xffffffffL)).append(",");
 					}
 					if (callLog.containsKey(pcNow)) {                  // callog: entry values of the callee, integer args (r4..) then float args (fr4..)
 							int[] nn = callLog.get(pcNow);

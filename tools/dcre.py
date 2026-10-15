@@ -13,6 +13,11 @@
   ./dcre slice ADDR        annotated asm + classified callees of one function
   ./dcre annotate ADDR     annotated asm only (literal values, call args, loops)
   ./dcre autodiff SPEC     retail-vs-C differential in the Ghidra SH-4 emulator (adds --mutate for the full proof)
+  ./dcre specgen ADDR       generate a STRONG autodiff spec + wrapper skeleton from the asm (auto boundary args, big varied regions, tail-call aware)
+  ./dcre lint ADDR PORT.c [--spec S.json]  static checks of a port against the asm (missing constants/widths, wrapper vs spec)
+  ./dcre selftest [--emulator]  self-test of the guard rails (tests/test_tools.py)
+  ./dcre claims [paths]     list CONFIRMED/PROVEN claims that no autodiff ledger entry backs
+  ./dcre facts ADDR         machine-readable facts of one function (JSON)
   ./dcre cc [find|compile|asm] ...  run the ORIGINAL Hitachi SHC from your SDK under wine (tools/shc.py); without an SDK: sh-elf-gcc structure-only fallback
   ./dcre discover [indirect|gaps]   unresolved indirect calls/jump tables and unexplained code bytes: where static discovery missed code
   ./dcre bytematch ...     compare compiled C with the retail bytes (see tools/bytematch.py)
@@ -22,7 +27,7 @@
 """
 import glob, os, shutil, subprocess, sys
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
 T = os.path.join(ROOT, 'tools')
 PY = [sys.executable, '-I']
 
@@ -276,6 +281,16 @@ def main():
         return run(PY + [os.path.join(T, 'sh4_annotate.py')] + rest, env)
     if c == 'autodiff':
         return run(PY + [os.path.join(T, 'autodiff.py')] + rest, env)
+    if c == 'specgen':
+        return run(PY + [os.path.join(T, 'specgen.py')] + rest, env)
+    if c == 'lint':
+        return run(PY + [os.path.join(T, 'portlint.py')] + rest, env)
+    if c == 'selftest':
+        return run(PY + [os.path.join(ROOT, 'tests', 'test_tools.py')] + rest, env)
+    if c == 'claims':
+        return run(PY + [os.path.join(T, 'proofcheck.py')] + rest, env)
+    if c == 'facts':
+        return run(PY + [os.path.join(T, 'dcfacts.py')] + rest, env)
     if c == 'cc':
         return run(PY + [os.path.join(T, 'shc.py')] + (rest or ['find']), env)
     if c == 'discover':

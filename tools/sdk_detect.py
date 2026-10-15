@@ -14,7 +14,7 @@ result is weaker: say so when asking.
 """
 import os, re, subprocess, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 SCAN = os.path.join(ROOT, 'skills/dc-decomp-kickoff/scripts/sdk_scan.py')
 TABLE = os.path.join(ROOT, 'skills/dc-decomp-kickoff/references/sdk-banners.tsv')

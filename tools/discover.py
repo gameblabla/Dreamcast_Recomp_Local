@@ -16,7 +16,7 @@ DrFindCode) instead of being discovered by a crash.
 """
 import os, re, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 RES = os.environ.get('DR_RESEARCH', os.path.join(ROOT, 'work', 'research'))
 BIN = os.environ.get('DR_BIN', os.path.join(ROOT, 'game', '1ST_READ.BIN'))

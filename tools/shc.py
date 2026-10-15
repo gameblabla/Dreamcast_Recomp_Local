@@ -15,11 +15,11 @@ Default SHC flags (reproduced Katana game code): -cpu=sh4 -endian=little -fpu=si
 -optimize=1 -size -string=const. Override with --flags (appended, so later options win) or env DR_SHC_FLAGS (replaces the defaults).
 DR_NO_SHC=1 pretends no SDK compiler exists.
 Environment quirks of shc.exe (found the hard way): SHC_LIB/SHC_TMP/SHC_INC must ALL be set, as Windows paths (Z:\\...), no trailing backslash;
-wine needs a prefix (DR_WINEPREFIX, default work/wineprefix) and DISPLAY must be empty. The SDK is only READ, never copied or modified.
+wine needs a prefix (DR_WINEPREFIX, default $TMPDIR/dcre_wineprefix_UID: ~300 MB, keep it off a nearly full disk) and DISPLAY must be empty. The SDK is only READ, never copied or modified.
 """
 import argparse, glob, os, re, shutil, struct, subprocess, sys, tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 DEFAULT_FLAGS = '-cpu=sh4 -endian=little -fpu=single -division=cpu -round=nearest -pic=0 -macsave=0 -optimize=1 -size -string=const'
 GCC = 'sh-elf-gcc -O2 -m4-single-only -ml -fno-pic -ffreestanding'
@@ -67,7 +67,7 @@ def win(p):
 
 def wine_env(bindir, tmp):
     e = dict(os.environ, WINEDEBUG='-all', DISPLAY='', WAYLAND_DISPLAY='', SHC_LIB=win(bindir), SHC_TMP=win(tmp), SHC_INC=win(bindir),
-             WINEPREFIX=os.environ.get('DR_WINEPREFIX') or os.path.join(ROOT, 'work', 'wineprefix'))
+             WINEPREFIX=os.environ.get('DR_WINEPREFIX') or os.path.join(os.environ.get('TMPDIR', '/tmp'), 'dcre_wineprefix_%d' % os.getuid()))
     os.makedirs(e['WINEPREFIX'], exist_ok=True)      # wine refuses to create a prefix in a directory we do not own (e.g. directly in /tmp): create it first
     return e
 

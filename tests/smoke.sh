@@ -22,4 +22,5 @@ if python3 -I tools/shc.py find >/dev/null 2>&1; then
 else
   echo "skip shc (no SDK compiler / wine): bytematch falls back to sh-elf-gcc"
 fi
+python3 -I tests/test_tools.py | tail -1
 echo "smoke ok"

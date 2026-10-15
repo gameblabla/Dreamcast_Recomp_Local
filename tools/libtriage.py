@@ -35,7 +35,7 @@ triage.py treats sdk-exact/lib-callee/lib-run as class 'sdk' (skipped by `next`)
 """
 import collections, csv, os, random, re, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 G = os.environ.get('DR_RESEARCH', os.path.join(ROOT, 'work', 'research'))
 SYMDB = os.path.join(ROOT, 'third_party', 'dc-re-ghidra', 'sdk-symbols.txt')

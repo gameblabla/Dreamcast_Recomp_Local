@@ -51,6 +51,7 @@ no byte-matching, no exact headers/structs, fewer library names. Agents must ask
 | `tools/libtriage.py` | no-SDK fallback: marks linked library code (callee closure + same-module runs from the few exact CRC matches) so it is not decompiled; skipped when the exact SDK is present |
 | `tools/triage.py` | classify functions (sdk/lib/hw/done/todo) and pick the next ready one |
 | `tools/autodiff.py` + `tools/autodiff/` | **retail vs your C** differential in the Ghidra SH-4 emulator: return value, callee calls in order, all memory; coverage gate; automatic mutants; `RESULT: PROVEN` |
+| `tools/specgen.py`, `tools/portlint.py`, `tools/adcheck.py`, `tools/dcfacts.py`, `tools/proofcheck.py` | guard rails (docs/GUARDRAILS.md): generated strong specs, static port lint, spec validation/lint/ratchet, unchecked callee arguments, proof ledger and claim check |
 | `tools/shc.py` (`./dcre cc`) | runs the ORIGINAL Hitachi SHC 5.1 from your SDK under wine (compile to linked bytes, asm listing, absolute `//@sym` externs); no SDK -> sh-elf-gcc fallback, clearly labelled |
 | `tools/discover.py` (`./dcre discover`) | unresolved indirect calls / jump tables and unexplained code bytes: where static discovery missed code |
 | `tools/bytematch.py`, `tools/permute.py` | compare compiled C with retail bytes; small source permuter |

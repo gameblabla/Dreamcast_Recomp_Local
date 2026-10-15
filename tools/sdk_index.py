@@ -12,7 +12,7 @@ Needs: wine or wibo, Ghidra headless (./dcre doctor). Takes a few minutes (Nades
 """
 import glob, os, re, shutil, subprocess, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 MAPNAMES = os.path.join(ROOT, 'skills', 'dc-decomp-kickoff', 'scripts', 'map_names.py')
 GSCRIPTS = os.path.join(ROOT, 'skills', 'dc-decomp-kickoff', 'scripts', 'ghidra')

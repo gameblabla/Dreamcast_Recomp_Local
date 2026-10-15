@@ -16,7 +16,7 @@ Classes (first match wins):
 """
 import collections, csv, os, re, subprocess, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 G = os.path.join(os.environ.get('DR_RESEARCH', os.path.join(ROOT, 'work', 'research')))
 LIB_START = int(os.environ.get('DR_LIB_START', '0'), 16) if os.environ.get('DR_LIB_START') else None

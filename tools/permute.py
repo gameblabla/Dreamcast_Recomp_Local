@@ -11,7 +11,7 @@ the readable intent in comments. See docs/UB_AND_OLD_COMPILERS.md.
 """
 import argparse, os, random, re, subprocess, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 RULES = [
     (r'\b(\w+) \+ (\w+)\b', r'\2 + \1'),
     (r'\b(\w+) \* (\w+)\b', r'\2 * \1'),

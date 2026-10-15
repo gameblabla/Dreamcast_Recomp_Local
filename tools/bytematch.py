@@ -61,7 +61,7 @@ def cand_bytes(a, tmp):
     if a.cand_bin:
         return open(a.cand_bin, 'rb').read()
     if not (a.cc or os.environ.get('DR_CC')):
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
         import shc
         ns = argparse.Namespace(flags=a.shc_flags or '', opt=None, syms=a.syms)
         raw, KIND[0], syms = shc.compile_to_bytes(os.path.abspath(a.src), a.func, int(a.addr, 16), ns, a.gcc)
@@ -91,7 +91,7 @@ def tag_kind():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--addr', required=True); ap.add_argument('--len', type=int, required=True)
-    ap.add_argument('--bin', default=os.environ.get('DR_BIN', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'game', '1ST_READ.BIN')))
+    ap.add_argument('--bin', default=os.environ.get('DR_BIN', os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'game', '1ST_READ.BIN')))
     ap.add_argument('--base', default=os.environ.get('DR_BASE', '0x8c010000'))
     ap.add_argument('--src'); ap.add_argument('--func'); ap.add_argument('--cc'); ap.add_argument('--cand-bin'); ap.add_argument('--gcc', action='store_true'); ap.add_argument('--shc-flags'); ap.add_argument('--syms')
     a = ap.parse_args()
