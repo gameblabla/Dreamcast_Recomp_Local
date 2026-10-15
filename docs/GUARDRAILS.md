@@ -57,3 +57,6 @@ What the three runs spent their calls on, and what is now done by tools:
 | Mismatch reports needed manual decoding | `retail path, annotated:` (the retail jump targets as instructions) and `HINT:` from `adcheck.value_hint` (extension, off-by-one, shift, sign bit, never-produced) |
 Limits: classification is flow-insensitive copy tracking on the listing (single forward pass); a register that mixes two parameters (`add rS,rD`) is never reported as a pointer, `@(r0,rN)` is ignored. Treat everything as HYPOTHESIS; autodiff is the judge. The reference fixture 073f72 still has two surviving mutants (`rd32` shift constants) under `--final`: a spec gap in the fixture, not a tool bug.
 
+
+## Trial 3 (new tooling, same model) and what it taught
+See the "Trial 3" line in AGENTS.md. Pitfalls worth remembering: (1) a diagnosis that blames the spec must first check whether the offending value is already allowed by the spec (then it is a port bug); (2) any knob that bounds inputs (`arg_limits`, regions, case counts) must be covered by the weakening ratchet; (3) a path line that shows only branch TARGETS is read as a full trace: show executed ranges and branch outcomes; (4) a 27B model generates ~1 tool call per 1.8 min, so per-function boxes of 40 min allow ~25 calls: automation that removes exploration calls (brief, specgen skeleton) matters more than extra guidance.
