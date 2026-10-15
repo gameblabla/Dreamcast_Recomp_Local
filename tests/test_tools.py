@@ -212,6 +212,11 @@ check('captured: scalars as recorded, the pointer arg relocated to its synthetic
 check('captured: fixed-address region restored, pointer bytes copied behind the synthetic base, stack word = relocated pointer',
       _m[0x8c0e0000].hex() == '0102030405060708' and _m[0x8cf00000].hex() == 'aabbccddeeff0011' and _m[0x8cf02000].hex() == '1122334455667788' and _m[0x8cffff00][:4] == (0x8cf02000).to_bytes(4, 'little'), str({hex(k): v.hex()[:16] for k, v in _m.items()}))
 shutil.rmtree(_td)
+# lessons of the 8c043680 run: stack-frame faults, narrowing arg_limits
+check('fault hint: an access below the entry sp says "do not imitate the retail stack frame"', any('BELOW the entry sp' in x for x in adcheck.explain_fault('ad_mem: address 8cfffec8 is outside every declared region', {'regions': [{'addr': '8cffff00', 'len': 64}]})))
+_f0 = adcheck.fingerprint({'regions': [{'addr': '8c000000', 'len': 4096}], 'args': {'r7': 'auto'}, 'arg_limits': {'r7': [-2, 40]}}, 150, 0, 1)
+_f1 = adcheck.fingerprint({'regions': [{'addr': '8c000000', 'len': 4096}], 'args': {'r7': 'auto'}, 'arg_limits': {'r7': [0, 40]}}, 150, 0, 1)
+check('ratchet: narrowing arg_limits (to hide a signedness bug) is a weaker spec', any('narrowed' in x for x in adcheck.weaker(_f0, _f1)) and not adcheck.weaker(_f1, _f0), str(adcheck.weaker(_f0, _f1)))
 if os.path.exists(os.path.join(ROOT, 'game', '1ST_READ.BIN')):       # the slow emulator-only checks below need the project data
     if '--emulator' in sys.argv:
         os.makedirs(os.path.join(ROOT, 'work'), exist_ok=True)

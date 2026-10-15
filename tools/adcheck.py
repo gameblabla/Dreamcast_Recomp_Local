@@ -248,6 +248,10 @@ def explain_fault(msg, spec):
     if 'time-limit' in msg or 'step-limit' in msg:
         out.append('the retail code ran too long: a callee that should be stubbed is executing for real (add it to "callees", hex address), or a loop bound comes from a region you left zero/garbage (declare/fill it), or an indirect call target is wrong.')
     for a in addrs[:3]:
+        if 0x8cfe0000 <= a < 0x8cffff00:
+            out.append('address %08x is BELOW the entry sp (0x8cffff00): your port is imitating the retail stack frame (pushes, saved registers, spilled locals). Do NOT declare a region for it: '
+                       'keep locals in C variables; only stack ARGUMENTS (5th+ argument, at sp+4*i = ad_rd32(c->r[15] + 4*i)) are in memory.' % a)
+            continue
         near = min(spans, key=lambda s: min(abs(a - s[0]), abs(a - (s[0] + s[1]))), default=None)
         inside = [s for s in spans if s[0] <= a < s[0] + s[1]]
         if inside:
@@ -326,7 +330,8 @@ def fingerprint(spec, ncase, mutate, seed):
                 varied=sum(1 for r in spec['regions'] if r.get('fill', 'edge') != 'zero' or r.get('patch') or r.get('word_choice')),
                 callees={str(c['addr']).lower().replace('0x', ''): [c.get('ints', 0), c.get('floats', 0)] for c in spec.get('callees', [])},
                 real=len(spec.get('real', [])), equiv=len(spec.get('equivalent_mutants', [])), allow_uncovered=len(spec.get('allow_uncovered', [])),
-                ignore_args=sum(len(v) for v in spec.get('ignore_args', {}).values()), check_ret=bool(spec.get('check_ret', True)))
+                ignore_args=sum(len(v) for v in spec.get('ignore_args', {}).values()), check_ret=bool(spec.get('check_ret', True)),
+                limits={k: list(v) for k, v in spec.get('arg_limits', {}).items()})
 
 
 def weaker(prev, cur):
@@ -349,6 +354,10 @@ def weaker(prev, cur):
         ci, cf = cur['callees'].get(a, [0, 0])
         if ci < i or cf < fl:
             w.append('callee %s compares ints/floats %d/%d now, %d/%d before' % (a, ci, cf, i, fl))
+    for k, (lo, hi) in prev.get('limits', {}).items():
+        c = cur.get('limits', {}).get(k)
+        if c is not None and (c[0] > lo or c[1] < hi):
+            w.append('arg_limits %s narrowed from [%d, %d] to [%d, %d]: values that exposed a bug must stay in the spec (a loop that only misbehaves for -1 is a signedness bug in the PORT)' % (k, lo, hi, c[0], c[1]))
     for k, msg in (('equiv', 'more declared-equivalent mutants'), ('allow_uncovered', 'more allowed-uncovered instructions'), ('ignore_args', 'more ignored callee arguments')):
         if cur[k] > prev[k]:
             w.append('%s (%d > %d)' % (msg, cur[k], prev[k]))

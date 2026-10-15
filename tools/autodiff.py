@@ -492,6 +492,21 @@ def main():
                             culprits.append(sname)
                     except subprocess.TimeoutExpired:
                         pass
+            inside = []
+            for cu in culprits:
+                mv = re.search(r'\b%s=([0-9a-f]+)\b' % cu, line[0])
+                lr = spec.get('arg_limits', {}).get(cu)
+                if mv and lr:
+                    sv = int(mv.group(1), 16)
+                    sv = sv - (1 << 32) if sv & 0x80000000 else sv
+                    if lr[0] <= sv <= lr[1]:
+                        inside.append((cu, sv, lr))
+            if inside:
+                cu, sv, lr = inside[0]
+                return None, ('PORT RUN ABORTED: ' + head[:400] + '\n'
+                              '  BISECTED: %s = %d makes the PORT loop (lowering it to 3 terminates), but %d is INSIDE the spec range arg_limits %s = %s, so the retail code is expected to terminate for it.\n'
+                              '  -> This is a PORT BUG, not a spec problem. Do NOT narrow arg_limits (the ratchet will flag it). Typical causes: a signed count compared as unsigned (retail `cmp/ge`, `cmp/gt` are SIGNED:\n'
+                              '     declare the count int32_t, never uint32_t, so a negative value runs zero iterations), a loop that never decrements/increments, or a bound taken from the wrong register.' % (cu, sv, sv, cu, lr))
             if culprits:
                 bis = '  BISECTED: lowering only %s to 3 makes this case terminate, so %s is the loop COUNT.\n' % (' and '.join(culprits), ' and '.join(culprits))
                 lim = ', '.join('"%s": [-2, 24]' % x for x in culprits)
