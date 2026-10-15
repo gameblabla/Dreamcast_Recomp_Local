@@ -131,6 +131,132 @@ def scaled_loads(text):
     return out
 
 
+def param_classes(text):
+    """Classify the function's inputs from the annotated listing (flow-insensitive copy tracking, single forward pass):
+      ptr         {'r4': {'off': [0, 4, 0x24], 'writes': True, 'null_check': False}}  parameter later used as the BASE of a memory access (mov @rN / @(d,rN) / @rN+ ...)
+      stack_args  [0, 1]      stack arguments (5th, 6th ... argument): loads from [entry-sp + 4*i] (Ghidra `Stack[0x..]` comments with a non-negative offset)
+      stack_ptr   {1: {...}}  stack arguments that are dereferenced later (same record as ptr)
+      count       ['r7']      parameters copied into a register that is compared inside a loop (advisory: loop COUNT candidates; may over-report)
+    A register that mixes several parameters (add rS,rD of two origins) is ambiguous and is NOT reported as a pointer."""
+    ins = []
+    for ln in text.split('\n'):
+        m = re.match(r'[> ]([0-9a-f]{8}): ([ _])(\S+)\s+(.*?)(?:\s+=> (r\d+) = (-?\d+) \(0x([0-9a-f]+)\))?(?:\s+;\s*(.*))?$', ln)
+        if m:
+            ins.append((int(m.group(1), 16), m.group(3), m.group(4).strip(), m.group(8) or '', m.group(5), int(m.group(7), 16) if m.group(7) else None))
+    out = dict(ptr={}, stack_args=[], stack_ptr={}, count=[], index=[])
+    if not ins:
+        return out
+    org = {r: {r} for r in ('r4', 'r5', 'r6', 'r7')}
+    slot = {}
+    stack_seen = set()
+    regre = re.compile(r'\br(\d+)\b')
+
+    def note_ptr(p, d, write, nullchk=False):
+        key = p if p.startswith('r') else int(p[1:])
+        dest = out['ptr'] if p.startswith('r') else out['stack_ptr']
+        e = dest.setdefault(key, dict(off=[], writes=False, null_check=False))
+        if d is not None and d not in e['off']:
+            e['off'].append(d)
+        e['writes'] = e['writes'] or write
+        e['null_check'] = e['null_check'] or nullchk
+
+    cmp_sites = []
+    constaddr = set()                       # registers currently holding a RAM address loaded from the literal pool (a table / global base)
+    index_of = set()                        # parameters proven to be INDEXES / scaled values (shifted, multiplied, or added to a table base)
+    for ad, op, a, cm, creg, cval in ins:
+        parts = [x.strip() for x in re.split(r',(?![^(]*\))', a)] if a else []
+        if creg:
+            if cval is not None and 0x8c000000 <= cval < 0x8d000000:
+                constaddr.add(creg)
+            else:
+                constaddr.discard(creg)
+        if op.startswith('cmp/') or op == 'dt':
+            cmp_sites.append((ad, set().union(*[org.get(r, set()) for r in re.findall(r'\br\d+\b', a)])))
+        reads_mem = None
+        for k, pt in enumerate(parts):
+            mm = re.fullmatch(r'@\(?(?:(?:0x)?([0-9a-f]+),)?(r\d+)\)?[+]?|@-(r\d+)|@\(r0,(r\d+)\)', pt)
+            if not mm:
+                continue
+            base = mm.group(2) or mm.group(3) or mm.group(4)
+            if pt.startswith('@(r0,'):
+                continue                      # @(r0,rN): rN may be the index or the base: no evidence either way
+            else:
+                disp = int(mm.group(1), 16) if mm.group(1) else 0
+            if base == 'r15' or base is None:
+                continue
+            o = org.get(base, set())
+            if len(o) == 1:
+                is_store = (k == len(parts) - 1) and op.startswith(('mov', 'fmov')) and len(parts) == 2 and not parts[0].startswith('@')
+                note_ptr(next(iter(o)), disp, is_store or (k == 1 and op.startswith(('mov', 'fmov'))))
+        # stack argument load: [entry sp + d], Ghidra comment Stack[0x..]
+        ms = re.search(r'Stack\[(0x[0-9a-f]+)\]', cm)
+        if ms and op.startswith('mov') and len(parts) == 2 and re.fullmatch(r'r\d+', parts[1]) and parts[0].startswith('@'):
+            idx = int(ms.group(1), 16) // 4
+            if idx not in stack_seen:
+                stack_seen.add(idx); out['stack_args'].append(idx)
+            org[parts[1]] = {'S%d' % idx}
+            continue
+        # origin updates
+        if op in ('mov', 'extu.b', 'extu.w', 'exts.b', 'exts.w', 'neg', 'not', 'swap.w', 'swap.b') and len(parts) == 2 and re.fullmatch(r'r\d+', parts[0]) and re.fullmatch(r'r\d+', parts[1]):
+            org[parts[1]] = set(org.get(parts[0], set()))
+        elif op == 'add' and len(parts) == 2 and re.fullmatch(r'r\d+', parts[0]) and re.fullmatch(r'r\d+', parts[1]):
+            if (parts[0] in constaddr and org.get(parts[1])) or (parts[1] in constaddr and org.get(parts[0])):
+                idxr = parts[1] if parts[0] in constaddr else parts[0]      # param + table base: the PARAM is an index
+                index_of |= {p for p in org.get(idxr, set())}
+                org[parts[1]] = set()
+            else:
+                org[parts[1]] = org.get(parts[1], set()) | org.get(parts[0], set())
+        elif op.startswith(('shl', 'shr', 'shal', 'shar', 'mul', 'rotl', 'rotr')) and parts and re.fullmatch(r'r\d+', parts[-1]):
+            index_of |= org.get(parts[-1], set())                  # scaled by a shift / multiply: an index or a size, not a pointer
+            org[parts[-1]] = set()
+        elif op in ('add', 'sub') and parts and re.fullmatch(r'r\d+', parts[-1]):
+            pass                                                   # add #imm / sub keeps the origin
+        elif op == 'mov.l' and len(parts) == 2:
+            m1 = re.fullmatch(r'@\((?:0x)?([0-9a-f]+),r15\)|@r15', parts[1])
+            m0 = re.fullmatch(r'@\((?:0x)?([0-9a-f]+),r15\)|@r15', parts[0])
+            if m1 and re.fullmatch(r'r\d+', parts[0]):
+                slot[m1.group(1) or '0'] = set(org.get(parts[0], set()))
+            elif m0 and re.fullmatch(r'r\d+', parts[1]):
+                org[parts[1]] = set(slot.get(m0.group(1) or '0', set()))
+            elif re.fullmatch(r'r\d+', parts[1]):
+                org[parts[1]] = set()
+        else:
+            from_sa = None
+            try:
+                import sh4_annotate as _sa
+                from_sa = _sa.reg_reads_writes(dict(op=op, args=a))[1]
+            except Exception:
+                from_sa = [parts[-1]] if parts and re.fullmatch(r'r\d+', parts[-1]) and not op.startswith(('cmp', 'tst')) else []
+            for w in from_sa:
+                if w in org:
+                    org[w] = set()
+        # null checks on pointer-ish registers
+        if op in ('tst',) and len(parts) == 2 and parts[0] == parts[1]:
+            for p in org.get(parts[0], set()):
+                (out['ptr'].get(p) or out['stack_ptr'].get(int(p[1:]) if p.startswith('S') else -1) or {}).update({'null_check': True}) if (out['ptr'].get(p) or out['stack_ptr'].get(int(p[1:]) if p.startswith('S') else -1)) else None
+    # a parameter that was later shown to be an index/scaled value is not a pointer (drop entries recorded before the scaling was seen)
+    for p in list(out['ptr']):
+        if p in index_of:
+            del out['ptr'][p]
+    for p in list(out['stack_ptr']):
+        if 'S%d' % p in index_of:
+            del out['stack_ptr'][p]
+    out['index'] = sorted(index_of)
+    # loop-count candidates (advisory)
+    for k, (ad, op, a, cm, _c, _v) in enumerate(ins):
+        if op in ('bt', 'bf', 'bt/s', 'bf/s', 'bra') and re.match(r'0x[0-9a-f]+', a):
+            t = int(a.split()[0], 16)
+            if t < ad:
+                for ad2, origins in cmp_sites:
+                    if t <= ad2 <= ad:
+                        for p in origins:
+                            if p in ('r4', 'r5', 'r6', 'r7') and p not in out['count']:
+                                out['count'].append(p)
+    out['count'].sort()
+    out['stack_args'].sort()
+    return out
+
+
 if __name__ == '__main__':
     import json
     if len(sys.argv) < 2:

@@ -118,6 +118,101 @@ if shutil.which('node'):
     check('dcguard core: blocks/re-injection rules', r.returncode == 0, (r.stdout + r.stderr)[-600:])
     print(r.stdout.strip())
 
+
+# ---- automation round 3: parameter classes, specgen skeleton/wrapper, hints, brief
+check('value_hint: sign vs zero extension', 'extension' in (adcheck.value_hint(0xffffff80, 0x80) or ''))
+check('value_hint: port never produced', 'never produced' in (adcheck.value_hint(5, 0) or ''))
+check('value_hint: off by one', 'off by one' in (adcheck.value_hint(10, 11) or ''))
+check('value_hint: shift', 'shift' in (adcheck.value_hint(0x1100, 0x4400) or ''))
+if os.path.exists(os.path.join(ROOT, 'game', '1ST_READ.BIN')):
+    try:
+        import dcfacts as _df
+        t1 = _df.annotate_text(0x8c04c938)
+        pc1 = _df.param_classes(t1)
+        check('param_classes: output pointers r4/r5 are WRITTEN pointers, no stack args', set(pc1['ptr']) == {'r4', 'r5'} and all(v['writes'] for v in pc1['ptr'].values()) and not pc1['stack_args'], str(pc1))
+        pc2 = _df.param_classes(_df.annotate_text(0x8c043680))
+        check('param_classes: stack argument 0 is an INDEX (scaled, added to a table base), not a pointer; r7 a loop count', pc2['stack_args'] == [0] and not pc2['stack_ptr'] and 'S0' in pc2['index'] and 'r7' in pc2['count'], str(pc2))
+        tdir = tempfile.mkdtemp()
+        rc, out = run('tools/specgen.py', '0x8c043680', '--out', os.path.join(tdir, 'tests'), '--port', os.path.join(tdir, 'fn_8c043680.c'))
+        sp_ = json.load(open(os.path.join(tdir, 'tests', 'spec_8c043680.json'))) if rc == 0 else {}
+        check('specgen: stack region with a small-index patch, arg_limits for the loop count, no bogus pointer', rc == 0 and sp_.get('stack_args') == 1 and 'stack0' not in sp_.get('ptr_args', {}) and sp_.get('arg_limits', {}).get('r7') == [-2, 40] and any(r['addr'] == '8cffff00' and r.get('patch') for r in sp_['regions']), out[-300:])
+        wr = open(os.path.join(tdir, 'tests', 'wrapper_8c043680.c')).read()
+        sk = open(os.path.join(tdir, 'fn_8c043680.c')).read()
+        check('specgen: complete wrapper (no #error) and a port skeleton with typed helpers', '#error' not in wr and 'fn_8c043680(c)' in wr and '#error "port not written"' in sk and 'call_8c07d700(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)' in sk and 'ad_rd32(c->r[15] + 0)' in sk, sk[:300])
+        rc, out = run('tools/specgen.py', '0x8c04c938', '--out', os.path.join(tdir, 'tests'), '--port', os.path.join(tdir, 'fn_8c04c938.c'))
+        sk2 = open(os.path.join(tdir, 'fn_8c04c938.c')).read()
+        check('specgen: float literals become KF_ macros (0xc6000000) in the skeleton', 'KF_8C04CA18_FR3 0xc6000000u' in sk2, sk2[:200])
+        shutil.rmtree(tdir)
+        rc, out = run('tools/brief.py', '0x8c043680')
+        check('brief: similar ported functions, caller call sites and decompile hint sections', rc == 0 and 'SIMILAR PORTED FUNCTIONS' in out and 'HOW CALLERS PASS THE ARGUMENTS' in out and 'GHIDRA DECOMPILE' in out, out[-300:])
+        import attempts as _at
+        td_ = tempfile.mkdtemp(); os.makedirs(os.path.join(td_, 'port')); pf_ = os.path.join(td_, 'port', 'fn_8c000000.c')
+        for k_, (b_, f_) in enumerate([(5, 0), (3, 0), (9, 0)]):
+            open(pf_, 'w').write('/* v%d */' % k_)
+            _at.snapshot(td_, '8c000000', [pf_], b_, f_, 0, 0, 'RESULT: NOT PROVEN')
+        ix_ = json.load(open(os.path.join(td_, 'work', 'attempts', '8c000000', 'index.json')))
+        check('attempts: snapshots every run and remembers the best (fewest mismatches)', ix_['best'] == 2 and len(ix_['runs']) == 3)
+        shutil.rmtree(td_)
+        check('brief: inputs, stack index, loop count, hazards, callees grouped', rc == 0 and 'INDEX' in out and 'COUNT' in out and 'HAZARDS' in out and 'call site(s)' in out, out[:400])
+    except Exception as ex:
+        check('automation round 3 (needs the project asm)', False, repr(ex))
+
+
+# ---- rank.py / agentrun helpers
+try:
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import agentrun as _ar
+    _td = tempfile.mkdtemp(); os.makedirs(os.path.join(_td, 'work', 'proofs'))
+    json.dump({'runs': [{'result': 'RESULT: NOT PROVEN -- 30 mismatches (x)'}, {'result': 'RESULT: NOT PROVEN -- 2 emulator faults; x'}, {'result': 'RESULT: PROVEN'}]}, open(os.path.join(_td, 'work', 'proofs', '8c000000.json'), 'w'))
+    check('agentrun: scores() reads mismatches/faults from the ledger', _ar.scores(_td, '8c000000') == [30, 2, 0])
+    shutil.rmtree(_td)
+except Exception as ex:
+    check('agentrun helpers import', False, repr(ex))
+if os.path.exists(os.path.join(ROOT, 'game', '1ST_READ.BIN')):
+    rc, out = run('tools/rank.py', '0x8c043680', '0x8c04c938')
+    rows = [l.split('\t') for l in out.strip().split('\n')[1:]]
+    check('rank: both ranked, the float+pointer function 8c04c938 is the harder one', rc == 0 and len(rows) == 2 and float(rows[0][0]) < float(rows[1][0]) and rows[1][1] == '8c04c938', out)
+
+
+# ---- step 1/3 of the Mizuchi/Flycast plan: write trace + dcprobe protocol
+import autodiff as _ad
+check('wl_diff: identical sequences (stack stores ignored)', _ad.wl_diff('8cf00000:1:05,8cfffe00:4:deadbeef,', '8cf00000:1:05,') is None)
+d_ = _ad.wl_diff('8cf00000:1:05,8cf00004:4:01000000,', '8cf00000:1:05,')
+check('wl_diff: missing store reported with the store index and the accessor hint', d_ and 'write #1' in d_ and 'FEWER' in d_ and 'ad_wr' in d_, str(d_))
+check('wl_diff: width difference', 'WIDTH' in (_ad.wl_diff('8cf00000:1:05,', '8cf00000:2:0500,') or ''))
+check('wl_diff: order difference', 'ADDRESS or ORDER' in (_ad.wl_diff('8cf00000:1:05,8cf00001:1:06,', '8cf00001:1:06,8cf00000:1:05,') or ''))
+import socket as _so, dcprobe as _dp
+a_, b_ = _so.socketpair()
+g_ = _dp.RSP.__new__(_dp.RSP); g_.s = a_; g_.buf = b''
+def _srv(*pkts):
+    for pk in pkts:
+        b_.sendall(('$%s#%02x' % (pk, sum(pk.encode()) & 0xff)).encode())
+_srv('S05', 'OK')              # a stale stop notification followed by the real reply: cmd() must skip the stop and NOT mistake "OK" for console output
+check('rsp: cmd() skips a stray stop reply and returns OK (not swallowed as console output)', g_.cmd('Z0,8c000000,2', timeout=2) == 'OK')
+_srv('S05')
+check('rsp: wait_stop returns the stop reply', g_.wait_stop(2) == 'S05')
+import struct as _st
+_srv(_st.pack('<59I', *range(59)).hex())
+r_ = g_.regs()
+check('rsp: register packet decoded in SH-4 order (r0..r15, pc at 16, pr 17, fr0 at 25)', r_['r4'] == 4 and r_['pc'] == 16 and r_['pr'] == 17 and r_['fr0'] == 25 and r_['fr15'] == 40, str(r_)[:80])
+a_.close(); b_.close()
+# captured real-game cases are relocated onto the spec's synthetic regions
+import random as _rnd
+_spec = {'func': '8c000000', 'captured': 'cap.json', 'args': {'r4': 'auto', 'r5': 'auto', 'r7': 'auto'},
+         'ptr_args': {'r5': {'base': '8cf00000', 'size': 8}, 'stack0': {'base': '8cf02000', 'size': 8}}, 'stack_args': 1}
+_regions = [{'addr': '8c0e0000', 'len': 8, 'fill': 'zero'}, {'addr': '8cf00000', 'len': 8, 'fill': 'zero'}, {'addr': '8cf02000', 'len': 8, 'fill': 'zero'}, {'addr': '8cffff00', 'len': 64, 'fill': 'zero'}]
+_td = tempfile.mkdtemp()
+json.dump({'hits': [{'regs': {'r4': 7, 'r5': 0x8c123450, 'r7': 3}, 'stack': [0x8c999990] + [0] * 15, 'mem': {'8c0e0000': '0102030405060708'},
+                     'ptrmem': {'r5': 'aabbccddeeff0011', 'stack0': '1122334455667788'}}]}, open(os.path.join(_td, 'cap.json'), 'w'))
+_spec['captured'] = os.path.join(_td, 'cap.json')
+_cc = _ad.captured_cases(_spec, _regions, _rnd.Random(1), b'', 0x8c010000)
+_regs, _mem = _cc[0]
+_m = dict(_mem)
+check('captured: scalars as recorded, the pointer arg relocated to its synthetic region', _regs['r4'] == 7 and _regs['r7'] == 3 and _regs['r5'] == 0x8cf00000, str(_regs))
+check('captured: fixed-address region restored, pointer bytes copied behind the synthetic base, stack word = relocated pointer',
+      _m[0x8c0e0000].hex() == '0102030405060708' and _m[0x8cf00000].hex() == 'aabbccddeeff0011' and _m[0x8cf02000].hex() == '1122334455667788' and _m[0x8cffff00][:4] == (0x8cf02000).to_bytes(4, 'little'), str({hex(k): v.hex()[:16] for k, v in _m.items()}))
+shutil.rmtree(_td)
+if os.path.exists(os.path.join(ROOT, 'game', '1ST_READ.BIN')):       # the slow emulator-only checks below need the project data
     if '--emulator' in sys.argv:
         os.makedirs(os.path.join(ROOT, 'work'), exist_ok=True)
         shutil.rmtree(os.path.join(ROOT, 'work', 'proofs'), ignore_errors=True)

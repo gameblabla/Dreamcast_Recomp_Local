@@ -21,7 +21,7 @@ import hashlib, json, os, re, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 
-SPEC_KEYS = {'arg_limits', 'func', 'cases', 'seed', 'check_ret', 'port', 'args', 'regions', 'callees', 'real', 'equivalent_mutants', 'asm_dir',
+SPEC_KEYS = {'captured', 'captured_max', 'write_trace', 'ptr_args', 'stack_args', 'arg_limits', 'func', 'cases', 'seed', 'check_ret', 'port', 'args', 'regions', 'callees', 'real', 'equivalent_mutants', 'asm_dir',
              'allow_uncovered', 'image', 'ignore_args', 'ignore_args_reason', 'notes', 'name', 'auto_range'}
 FLOOR_CASES = 40
 FLOOR_MUTANTS = 24
@@ -109,7 +109,7 @@ def lint(spec, f):
         if p not in args:
             warns.append('retail reads parameter %s before writing it, but the spec gives it no values: it is 0 in every case. Add "%s": "auto" (boundary values harvested from the asm) or a list.' % (p, p))
     for k, v in args.items():
-        if isinstance(v, list):
+        if isinstance(v, list) and k not in spec.get('ptr_args', {}):
             if len(set(v)) < 4:
                 warns.append('arg %s has only %d distinct value(s) %s: use "auto" or include boundaries (0, 1, -1, compared constants +-1)' % (k, len(set(v)), sorted(set(v))[:4]))
         elif v not in ('rand', 'auto') and not isinstance(v, dict):
@@ -287,6 +287,32 @@ def sha(path):
         return hashlib.sha256(open(path, 'rb').read()).hexdigest()[:16]
     except OSError:
         return None
+
+
+def value_hint(retail, port, width=32):
+    """SH-4-specific reading of two differing integer values (retail vs port): the usual cause, in one line. None when nothing useful."""
+    m = (1 << width) - 1
+    r, p = retail & m, port & m
+    if r == p:
+        return None
+    if p == 0 and r != 0:
+        return 'the port never produced this value (store/branch missing, or an earlier compare takes the other side)'
+    if r == 0 and p != 0:
+        return 'the port produced a value where retail left 0 (inverted or off-by-one compare, wrong sign/unsigned compare: cmp/ge,gt are SIGNED, cmp/hs,hi UNSIGNED)'
+    for bits in (8, 16):
+        lo = (1 << bits) - 1
+        if (r & lo) == (p & lo):
+            sx = lambda v: (v | ~lo) & m if v & (1 << (bits - 1)) else v & lo
+            if r == sx(p & lo) or p == sx(r & lo):
+                return 'same low %d bits, different extension: mov.%s sign-extends, extu.%s zero-extends (check the load/cast width and signedness)' % (bits, 'b' if bits == 8 else 'w', 'b' if bits == 8 else 'w')
+    if abs(r - p) == 1 or abs(r - p) == (1 << width) - 1:
+        return 'off by one: > vs >=, a count/loop bound, or the instruction in a branch DELAY SLOT (it runs before the branch is taken)'
+    for sh in range(1, 16):
+        if max(r, p) >= 0x100 and bin(r).count('1') == bin(p).count('1') and ((r << sh) & m == p or (p << sh) & m == r or (r >> sh) == p or (p >> sh) == r):
+            return 'values differ by a shift of %d: wrong shift count / element size (shll2 = *4, shll8 = *256) or wrong field width' % sh
+    if (r ^ p) & 0x80000000 and (r & 0x7fffffff) == (p & 0x7fffffff):
+        return 'only the sign bit differs: fneg/fabs, a negated operand, or swapped subtraction operands (SH-4 `sub rS,rD` is rD = rD - rS)'
+    return None
 
 
 def fingerprint(spec, ncase, mutate, seed):

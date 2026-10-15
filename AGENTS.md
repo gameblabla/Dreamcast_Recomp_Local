@@ -3,7 +3,7 @@
 Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by function, with proof for every function.
 
 ## Commands (everything goes through `./dcre`; `./dcre help`)
-`doctor` · `extract` · `sdk` · `import` · `export` · `status` · `next [N]` · `slice ADDR` · `annotate ADDR` · `specgen ADDR` · `lint` · `autodiff SPEC [--mutate] [--final]` · `readmem ADDR` · `notes` · `claims` · `cc` · `discover` · `bytematch` · `permute` · `emu` · `agent ADDR`
+`doctor` · `extract` · `sdk` · `import` · `export` · `status` · `next [N]` · `slice ADDR` · `annotate ADDR` · `brief ADDR` · `specgen ADDR` · `lint` · `autodiff SPEC [--mutate] [--final]` · `readmem ADDR` · `notes` · `claims` · `cc` · `discover` · `bytematch` · `permute` · `emu` · `agent ADDR`
 
 ## First thing every session
 1. Skill `dc-project-setup`: `./dcre doctor`. If `project.env`/`game/`/`work/research` are missing, set them up as that skill says.
@@ -13,6 +13,7 @@ Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by functi
 ## Per function
 - Pick with `./dcre next` / `./dcre slice ADDR`. Load skill `decomp-function` and follow it literally.
 - Original compiler available (`./dcre cc find`, SHC from the SDK)? also skill `byte-matching`; `bytematch` prints `compiler=SHC|GCC(fallback)`, only SHC counts as a match. Always finish with skill `ub-and-old-compilers`.
+- Start with `./dcre brief ADDR` (one page of facts: pointer / stack / count inputs, callees, constants, hazards), then `./dcre specgen ADDR` (spec + complete wrapper + typed port skeleton `port/fn_<addr>.c`; write only the body). The dcguard plugin shows PHASE / NEXT ACTION in your system prompt.
 - Start the spec with `./dcre specgen ADDR` (never hand-write a weaker one), run `./dcre lint ADDR PORT.c --spec SPEC` before the emulator. A tail call (`TAIL` in `./dcre annotate`) hands r4-r7/fr4-fr7 to its callee: compare every register the callee reads. Details and every failure it prevents: docs/GUARDRAILS.md.
 - Proof: `./dcre autodiff SPEC --final` (seed 7, 300 cases, 60 mutants, sanitizers) -> `RESULT: PROVEN`. Quote THAT line; a plain run that says PROVEN prints `NOT YET QUOTABLE`. Anything else is NOT DONE (say so, with the last RESULT line).
 - Never open the game image by hand: `./dcre readmem 0xADDR [LEN]` takes the VIRTUAL address (file offset = address - 0x8c010000). The binary, the annotated listing and Ghidra agree; garbage means you used the wrong number space.
@@ -33,3 +34,6 @@ Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by functi
 - Read targeted (grep/head/sed -n); never print whole dumps. Temporaries in `work/` or `work/autodiff/`.
 - Never commit `game/`, `work/`, `project.env`, SDK files, `third_party/flycast-bin`. Do not `git commit` unless asked.
 - Ghidra project is locked while another headless job uses it; autodiff uses a private copy so it is safe to run in parallel.
+- Round 4 (research-driven; docs/RESEARCH_NOTES.md in Dreamcast_Recomp_Local): `attempts.py list|best|restore ADDR` (autodiff snapshots every run, best kept), plugin supplies a DETERMINISTIC compaction summary (notes, ledger scores, failing commands, history) instead of a model-written one, `STALLED` steering, brief sections SIMILAR PORTED FUNCTIONS / HOW CALLERS PASS THE ARGUMENTS / GHIDRA DECOMPILE / SPECIAL OPCODES, and index vs pointer classification (a parameter that is shifted/multiplied or added to a table base is an INDEX, not a pointer).
+- Round 5 (Mizuchi review, details in Dreamcast_Recomp_Local/docs/RESEARCH_NOTES.md): every tool result ends with `[dcguard] calls N/220 | phase | next`, shell output is capped at 7000 chars, a hard call limit forces the final report; `agentrun.py` has a soft deadline (75%), gives up early when 6 autodiff runs in a row do not beat the best (`--stall-runs`), and can resume with a stronger model (`--escalate provider/model`); `rank.py` (`./dcre rank`) picks the next function by difficulty x similarity.
+- Round 6 (Mizuchi behavioural check + Flycast): autodiff compares the retail STORE SEQUENCE (spec `write_trace`, on in generated specs; the emulator script logs every store with a MemoryAccessFilter, the port logs `ad_wr8/16/32`), and `dcprobe.py` (`./dcre probe`) captures real arguments/stack/pointer bytes from Flycast save states through its GDB server; the spec key `captured` replays them as extra cases. `patches/flycast-gdb-send-queue.patch` + `tools/build_flycast_probe.sh` fix the stub's dropped stop replies. See Dreamcast_Recomp_Local/docs/FLYCAST_NOTES.md (dcprobe section) for what works and the stub's quirks.

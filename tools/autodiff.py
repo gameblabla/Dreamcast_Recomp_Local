@@ -83,6 +83,46 @@ def fill_region(rnd, r, image, base):
     return bytes(b)
 
 
+def captured_cases(spec, regions, rnd, image, base):
+    """Real game inputs recorded by tools/dcprobe.py (`capture`): [(regs, mem)] in the same shape as the synthetic cases. Pointer parameters are RELOCATED to the
+    synthetic region of the spec (the bytes the real pointer pointed to are copied there), stack arguments are replayed into the stack region, scalars as they were."""
+    path = spec['captured'] if os.path.isabs(spec['captured']) else os.path.join(ROOT, spec['captured'])
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError) as ex:
+        sys.exit('"captured": cannot read %s (%s). Create it with: python3 -I tools/dc/dcprobe.py capture 0x%s --state N --spec <this spec>' % (path, ex, spec['func']))
+    ptr = spec.get('ptr_args', {})
+    out = []
+    for hit in data.get('hits', [])[:spec.get('captured_max', 20)]:
+        rg = hit['regs']
+        regs = {}
+        for k in spec.get('args', {}):
+            if k in ptr:
+                regs[k] = hx(ptr[k]['base'])
+            else:
+                regs[k] = rg.get(k, 0) & 0xffffffff
+        mem = []
+        for r in regions:
+            a = hx(r['addr'])
+            b = None
+            if hit.get('mem', {}).get('%08x' % a):
+                b = bytes.fromhex(hit['mem']['%08x' % a])
+            for pk, pv in ptr.items():
+                if hx(pv['base']) == a and hit.get('ptrmem', {}).get(pk):
+                    b = bytes.fromhex(hit['ptrmem'][pk])
+            if a == 0x8cffff00:
+                words = list(hit.get('stack', []))
+                for pk, pv in ptr.items():
+                    if pk.startswith('stack') and pk[5:].isdigit() and int(pk[5:]) < len(words):
+                        words[int(pk[5:])] = hx(pv['base'])
+                b = b''.join((w & 0xffffffff).to_bytes(4, 'little') for w in words)
+            filler = fill_region(rnd, r, image, base)
+            b = ((b or b'') + filler[len(b or b''):])[:r['len']]
+            mem.append((a, b))
+        out.append((regs, mem))
+    return out
+
+
 def private_project(tmp):
     """Private read-only copy of the Ghidra project (no lock clashes with other jobs / parallel autodiff runs)."""
     import shutil
@@ -139,6 +179,8 @@ def parse_result(line):
             regs['ABI'] = t[4:]
         elif t.startswith('X='):
             regs['X'] = t[2:]
+        elif t.startswith('WL='):
+            regs['WL'] = t[3:]
         elif t.startswith('T='):
             regs['T'] = t[2:]
     return ret, ev, regs
@@ -160,6 +202,47 @@ def compress_trace(t):
         if not done:
             out.append(xs[i]); i += 1
     return ' '.join(out)
+
+
+STACK_LO, STACK_HI = 0x8cfe0000, 0x8cffff00      # retail pushes/pops below the entry sp: not observable behaviour, never part of the write trace
+
+
+def wl_list(s):
+    out = []
+    for t in (s or '').split(','):
+        parts = t.split(':')
+        if len(parts) == 3:
+            try:
+                a = int(parts[0], 16)
+            except ValueError:
+                continue
+            if STACK_LO <= a < STACK_HI:
+                continue
+            out.append((a, parts[1], parts[2]))
+    return out
+
+
+def wl_diff(e, p):
+    """first difference between the retail and the port store sequences, or None. Order, count, width and value all matter (Mizuchi's behavioural check does the same)."""
+    el, pl = wl_list(e), wl_list(p)
+    for k in range(max(len(el), len(pl))):
+        a = el[k] if k < len(el) else None
+        b = pl[k] if k < len(pl) else None
+        if a != b:
+            f = lambda x: '%08x:%s=%s' % (x[0], x[1], x[2]) if x else '<none>'
+            hint = ''
+            if a and b and a[0] == b[0] and a[1] != b[1]:
+                hint = ' (same address, different WIDTH: mov.b/mov.w/mov.l)'
+            elif a and b and a[0] == b[0]:
+                hint = ' (same address and width, different VALUE)'
+            elif a and b:
+                hint = ' (different ADDRESS or ORDER: check the index/offset arithmetic and the order of the stores)'
+            elif a and not b:
+                hint = ' (the port made FEWER stores: a store is missing, or the port wrote through ad_mem() instead of ad_wr8/16/32, which are the logged accessors)'
+            else:
+                hint = ' (the port made MORE stores than retail)'
+            return 'write #%d differs: retail %s | port %s%s; retail made %d store(s), port %d' % (k, f(a), f(b), hint, len(el), len(pl))
+    return None
 
 
 def diff_region(a, b):
@@ -253,7 +336,7 @@ def run_mutants(spec, srcs, emu, run_port, tmp, rnd, limit, cases, *_):
                     if e.startswith('FAULT'):
                         continue
                     er, eev, ereg = parse_result(e); pr, pev, preg = parse_result(o)
-                    if (spec.get('check_ret', True) and er != pr) or eev != pev or any(diff_region(ereg[q], preg.get(q, '')) for q in ereg if q not in ('X', 'T', 'F', 'ABI')):
+                    if (spec.get('check_ret', True) and er != pr) or eev != pev or any(diff_region(ereg[q], preg.get(q, '')) for q in ereg if q not in ('X', 'T', 'F', 'ABI', 'WL')) or (spec.get('write_trace') and 'WL' in ereg and wl_diff(ereg.get('WL'), preg.get('WL'))):
                         dead = True; break
             tagd = '%s:%d  %s' % (os.path.basename(path), line, desc)
             if dead:
@@ -343,10 +426,15 @@ def main():
         print('WARNING (spec too weak): ' + w)
     # ---- build the case set
     emu_lines, c_lines, cases = [], [], []
-    for _ in range(ncase):
-        regs = {k: pick(rnd, v) for k, v in spec.get('args', {}).items()}
-        mem = [(hx(r['addr']), fill_region(rnd, r, image, base)) for r in regions]
-        toks = ['call ' + func, 'cover', 'trace'] + ['%s=%x' % (k, v) for k, v in regs.items()]
+
+    def synth_cases():
+        for _ in range(ncase):
+            yield ({k: pick(rnd, v) for k, v in spec.get('args', {}).items()}, [(hx(r['addr']), fill_region(rnd, r, image, base)) for r in regions])
+    cap = captured_cases(spec, regions, rnd, image, base) if spec.get('captured') else []
+    if cap:
+        print('[autodiff] + %d REAL game case(s) replayed from %s (case numbers >= %d)' % (len(cap), spec['captured'], ncase), flush=True)
+    for regs, mem in __import__('itertools').chain(synth_cases(), cap):
+        toks = ['call ' + func, 'cover', 'trace'] + (['wlog'] if True else []) + ['%s=%x' % (k, v) for k, v in regs.items()]
         toks += ['wbytes:%x=%s' % (ad, m.hex()) for ad, m in mem]
         for c in callees:
             toks.append('callog=%s:%d:%d' % (c['addr'], c.get('ints', 0), c.get('floats', 0)))
@@ -440,6 +528,7 @@ def main():
     print('[autodiff] phase 3/3: compare%s' % (' + mutants' if a.mutate else ''), flush=True)
 
     bad = fault = 0
+    wl_notes = [0]
     shown = 0
     covered = set()
     abi_seen = set()
@@ -468,22 +557,67 @@ def main():
                 continue
             if k == 'F':
                 continue
+            if k == 'WL':
+                continue
             if k == 'X':
                 covered.update(int(x, 16) for x in ereg[k].split(',') if x)
                 continue
             d = diff_region(ereg[k], preg.get(k, ''))
             if d:
                 why.append('%s: first differing byte at offset 0x%x (+%d): retail=%s port=%s' % (k, d[0], d[0], d[1], d[2]))
+        if 'WL' in ereg:
+            wd = wl_diff(ereg.get('WL'), preg.get('WL'))
+            if wd and spec.get('write_trace'):
+                why.append(wd)
+            elif wd:
+                wl_notes[0] += 1
         if why:
+            try:
+                hints = []
+                if spec.get('check_ret', True) and er != pr and er and pr and re.fullmatch(r'[0-9a-f]+', str(er)) and re.fullmatch(r'[0-9a-f]+', str(pr)):
+                    hints.append(adcheck.value_hint(int(str(er), 16), int(str(pr), 16)))
+                for w_ in why:
+                    mm_ = re.search(r'retail=([0-9a-f]{2}) port=([0-9a-f]{2})', w_)
+                    if mm_:
+                        hints.append(adcheck.value_hint(int(mm_.group(1), 16), int(mm_.group(2), 16), 8))
+                hints = [h for h in hints if h]
+                if hints:
+                    why.append('HINT: ' + hints[0])
+            except Exception:
+                pass
             bad += 1
             if shown < 2:
                 shown += 1
-                print('case %d MISMATCH args=%s' % (i, {k: '%x' % v for k, v in cases[i].items()}))
+                print('case %d%s MISMATCH args=%s' % (i, ' (REAL game input)' if i >= ncase else '', {k: '%x' % v for k, v in cases[i].items()}))
                 for w in why:
                     print('   ' + w)
                 print('   retail made %d logged callee call(s), port made %d%s' % (len(eev), len(pev), ' (port calls it %s than retail)' % ('MORE' if len(pev) > len(eev) else 'FEWER') if len(eev) != len(pev) else ''))
                 if ereg.get('T'):
-                    print('   retail control-flow jumps (instruction addresses where execution was not sequential): ' + compress_trace(ereg['T'])[:700])
+                    print('   retail taken-branch TARGETS (addresses where execution jumped to; this is NOT the list of executed instructions): ' + compress_trace(ereg['T'])[:500])
+                    try:
+                        import sh4_annotate as _sa2
+                        _ins = _sa2.parse(_sa2.load_func(next(d_ for d_ in (spec.get('asm_dir'), os.path.join(ROOT, 'research/ghidra/asm'), os.path.join(ROOT, 'work/research/asm')) if d_ and os.path.isdir(d_)), hx(func)))
+                        _lst = {x['addr']: x for x in _ins}
+                        _tg = {int(t, 16) for t in re.findall(r'[0-9a-f]{8}', ereg['T'])}
+                        _ex = sorted(int(t, 16) for t in re.findall(r'[0-9a-f]{8}', ereg.get('X', '')))
+                        if _ex:
+                            _rg, _s, _p = [], _ex[0], _ex[0]
+                            for _a in _ex[1:]:
+                                if _a - _p > 4:
+                                    _rg.append((_s, _p)); _s = _a
+                                _p = _a
+                            _rg.append((_s, _p))
+                            print('   retail EXECUTED %d of %d instructions, in ranges: %s' % (len(_ex), len([x for x in _ins if not x['delay']]), ' '.join('%08x-%08x' % r_ for r_ in _rg[:12])))
+                            _dec = []
+                            for _a in _ex:
+                                _i = _lst.get(_a)
+                                if _i and _i['op'] in ('bt', 'bf', 'bt/s', 'bf/s'):
+                                    _t = int(_i['args'].split()[0], 16) if re.match(r'0x[0-9a-f]+', _i['args']) else None
+                                    _dec.append('%08x %s %s %s' % (_a, _i['op'], _i['args'].split()[0] if _i['args'] else '', 'TAKEN' if _t in _tg else 'not taken'))
+                            if _dec:
+                                print('   retail decisions: ' + ' | '.join(_dec[:14]))
+                    except Exception:
+                        pass
                     print('   -> compare with the annotated listing: this is the path the retail code took for these inputs; make your port take the same path and the same call order')
     unchecked = adcheck.unchecked_args(spec, [adcheck.f_events(e) for e in emu if not e.startswith('FAULT')])
     for u in unchecked:
@@ -511,6 +645,8 @@ def main():
         print('coverage check skipped: %s' % ex)
     if uncovered:
         warn.append('uncovered retail instructions')
+    if wl_notes[0]:
+        print('NOTE: the store SEQUENCE differs from retail in %d case(s) although the final memory matches. Set "write_trace": true in the spec to make that a mismatch (new specs from specgen have it), and write memory with ad_wr8/16/32.' % wl_notes[0])
     print('autodiff %s: %d cases, %d mismatches, %d faults%s' % (func, len(emu), bad, fault, '  [WEAK SPEC: %d warning(s)]' % len(warn) if warn else ''))
     if not a.keep and not os.environ.get('AD_TMP'):
         pass
@@ -535,6 +671,15 @@ def main():
         adcheck.ledger_save(ROOT, led, a.spec, spec, fp, srcs, result, not reasons, os.path.join(ROOT, port['wrapper']), final=a.final)
     except Exception as ex:
         print('note: proof ledger not written: %s' % ex)
+    try:
+        import attempts
+        nsurv = 1 if mrc else 0
+        snap = attempts.snapshot(ROOT, func, srcs, bad, fault, len(uncovered), nsurv, result)
+        if snap:
+            r_ = snap['runs'][-1]
+            print('[attempts] snapshot #%d score=%s %s; best is #%d  (python3 -I tools/dc/attempts.py list|restore %s)' % (r_['n'], r_['score'], '' if snap['best'] == r_['n'] else '(WORSE than best: consider `attempts.py restore %s best` and one new hypothesis)' % func, snap['best'], func))
+    except Exception as ex:
+        print('note: attempt snapshot skipped: %s' % ex)
     sys.exit(0 if not reasons else 1)
 
 

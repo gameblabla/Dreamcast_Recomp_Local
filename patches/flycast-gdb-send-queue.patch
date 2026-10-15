@@ -1,0 +1,73 @@
+--- a/core/debug/gdb_server.cpp	2026-10-15 03:38:13.286927709 +0200
++++ b/core/debug/gdb_server.cpp	2026-10-15 19:58:04.232041555 +0200
+@@ -29,6 +29,7 @@
+ #include <thread>
+ #include <chrono>
+ #include <cassert>
++#include <deque>
+ #include <memory>
+ 
+ namespace debugger {
+@@ -71,18 +72,13 @@
+ 
+ 	void send(const std::string& msg)
+ 	{
+-		if (!msg.empty())
+-		{
+-			if (!outMessage.empty()) {
+-				WARN_LOG(COMMON, "Message dropped: %s. Already sending: %s", msg.c_str(), outMessage.c_str());
+-				return;
+-			}
+-			outMessage = msg;
+-			asio::async_write(socket, asio::buffer(outMessage),
+-				std::bind(&Connection::writeDone, shared_from_this(),
+-						asio::placeholders::error,
+-						asio::placeholders::bytes_transferred));
+-		}
++		// dcprobe patch: QUEUE outgoing packets. The stock stub dropped a packet (e.g. the stop reply of a breakpoint that fires right after
++		// a 'c', while the '+' ack of that 'c' is still being written): "Message dropped: $S05#b8. Already sending: +"
++		if (msg.empty())
++			return;
++		pending.push_back(msg);
++		if (!writing)
++			writeNext();
+ 	}
+ 
+ private:
+@@ -117,11 +113,27 @@
+ 
+ 	void handlePacket(const std::error_code& ec, size_t len);
+ 
++	void writeNext()
++	{
++		if (pending.empty()) {
++			writing = false;
++			return;
++		}
++		writing = true;
++		outMessage = pending.front();
++		pending.pop_front();
++		asio::async_write(socket, asio::buffer(outMessage),
++			std::bind(&Connection::writeDone, shared_from_this(),
++					asio::placeholders::error,
++					asio::placeholders::bytes_transferred));
++	}
++
+ 	void writeDone(const std::error_code& ec, size_t len)
+ 	{
+ 		if (ec)
+ 			WARN_LOG(COMMON, "Write error: %s", ec.message().c_str());
+ 		outMessage.clear();
++		writeNext();
+ 	}
+ 
+ 	GdbServer& server;
+@@ -129,6 +141,8 @@
+ 	asio::ip::tcp::socket socket;
+ 	std::string message;
+ 	std::string outMessage;
++	std::deque<std::string> pending;
++	bool writing = false;
+ 	friend super;
+ };
+ 

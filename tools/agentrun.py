@@ -42,6 +42,14 @@ def proven_final(project, addr):
     return ok
 
 
+def scores(project, addr):
+    out = []
+    for r in ledger(project, addr).get('runs', []):
+        m = re.search(r'(\d+) mismatches', r.get('result', '')); f = re.search(r'(\d+) emulator faults', r.get('result', ''))
+        out.append((int(m.group(1)) if m else 0) + (int(f.group(1)) if f else 0))
+    return out
+
+
 def ledger_line(project, addr):
     runs = ledger(project, addr).get('runs', [])
     if not runs:
@@ -60,9 +68,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('addr'); ap.add_argument('--project', default='.'); ap.add_argument('--runner', default='opencode')
     ap.add_argument('--hours', type=float, default=2.0); ap.add_argument('--resumes', type=int, default=4)
-    ap.add_argument('--idle-min', type=float, default=12.0); ap.add_argument('--max-step-tokens', type=int, default=6000)
+    ap.add_argument('--idle-min', type=float, default=12.0); ap.add_argument('--max-step-tokens', type=int, default=4500)
     ap.add_argument('--blocked-limit', type=int, default=8, help='plugin-blocked calls in one stretch before the session is nudged')
     ap.add_argument('--prompt-extra', default='')
+    ap.add_argument('--soft-frac', type=float, default=0.75, help='fraction of --hours after which the agent is told to wrap up (Mizuchi soft timeout)')
+    ap.add_argument('--stall-runs', type=int, default=8, help='give up early when the last 6 of >= N autodiff runs did not beat the best earlier one (saves tokens)')
+    ap.add_argument('--escalate', default='', help='provider/model to resume with when the session stalls or loops (e.g. a stronger remote model)')
     a = ap.parse_args()
     project = find_project(a.project)
     addr = '%08x' % (int(a.addr, 16) & 0xffffffff)
@@ -84,8 +95,11 @@ def main():
     resumes = 0
     status = 'running'
     nudge = None
+    soft_done = False
+    escalated = False
+    model_args = []
     while True:
-        cmd = base + (['-s', session, nudge] if (session and nudge) else [prompt])
+        cmd = base + model_args + (['-s', session, nudge] if (session and nudge) else [prompt])
         p = subprocess.Popen(cmd, cwd=project, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errf, text=True, bufsize=1, start_new_session=True)
         last_ev = time.time()
         reason_stop = None
@@ -125,6 +139,10 @@ def main():
                     stats['error_calls'] += 1
                 if 'autodiff.py' in str(st.get('input')):
                     stats['autodiff_calls'] += 1
+                if 'autodiff.py' in str(st.get('input')) and not reason_stop:
+                    sc = scores(project, addr)
+                    if len(sc) >= a.stall_runs and min(sc[-6:]) >= min(sc[:-6] or [10 ** 9]) and not proven_final(project, addr):
+                        reason_stop = ('stalled', 'the last 6 of %d autodiff runs (%s) did not beat the best earlier run (%s)' % (len(sc), sc[-6:], min(sc[:-6])))
                 if blocked_run >= a.blocked_limit:
                     reason_stop = ('blocked', '%d plugin-blocked calls in a row' % blocked_run)
             elif t == 'step_finish':
@@ -136,6 +154,9 @@ def main():
                 stats['text_parts'] += 1
             if time.time() - t0 > a.hours * 3600:
                 reason_stop = ('timeout', 'wall-clock limit %.1f h' % a.hours)
+            elif not soft_done and time.time() - t0 > a.soft_frac * a.hours * 3600:
+                soft_done = True
+                reason_stop = ('soft', '%.0f%% of the time budget used' % (a.soft_frac * 100))
         if reason_stop:
             try:
                 os.killpg(p.pid, signal.SIGTERM); time.sleep(3)
@@ -154,6 +175,14 @@ def main():
         if reason_stop and reason_stop[0] == 'timeout':
             status = 'STOPPED: wall-clock limit'
             break
+        if reason_stop and reason_stop[0] == 'stalled':
+            if a.escalate and not escalated:
+                escalated = True
+                model_args = ['-m', a.escalate]
+                stats['escalations'] += 1
+            else:
+                status = 'GAVE UP EARLY (stalled: no improvement over the last 6 autodiff runs); best attempt: attempts.py best'
+                break
         if resumes >= a.resumes or not session:
             status = 'NOT DONE (resume budget used up)' if session else 'NOT DONE (no session id was seen)'
             break
@@ -163,10 +192,12 @@ def main():
                  {'length': 'Your last reply was cut off because you repeated yourself. Do NOT repeat reasoning. Run `python3 -I tools/dc/notes.py show 0x%s`, then take ONE concrete action with a tool.' % addr,
                   'idle': 'The previous step stalled. Re-read the notes (`notes.py show 0x%s`) and continue with one tool call.' % addr,
                   'blocked': 'Your last calls were blocked as repeats/invalid. Read the BLOCKED message, change approach, and record what you tried with notes.py tried.',
+                  'soft': 'Time is nearly up. Stop exploring NOW. If the normal run has 0 mismatches: run `--mutate` then `--final`. Otherwise `python3 -I tools/dc/attempts.py restore 0x%s best` and write the report: NOT DONE, the last RESULT line, what you learned.' % addr,
+                  'stalled': 'No progress over many autodiff runs. Restore the best attempt (`attempts.py restore 0x%s best`), read `notes.py show 0x%s`, and take a FUNDAMENTALLY different approach (re-read the brief and the annotated retail path in the last mismatch report; question one assumption in the notes).' % (addr, addr),
                   'exit': 'You stopped before a FINAL proof exists. Read the notes (`notes.py show 0x%s`), then continue: next step is `autodiff.py SPEC --final` once the normal run has 0 mismatches and all mutants killed; if you are truly stuck, write NOT DONE with evidence.' % addr}.get(why[0], 'Continue.'))
     dur = time.time() - t0
     rep = ['# agent run report: %s' % addr, '', '- status: **%s**' % status, '- duration: %.0f min, tool calls: %d, steps: %d, resumes: %d, watchdog kills: %d' %
-           (dur / 60, stats['tool_calls'], stats['steps'], resumes, stats['kills']),
+           (dur / 60, stats['tool_calls'], stats['steps'], resumes, stats['kills']) + (', escalations: %d' % stats['escalations'] if stats['escalations'] else ''),
            '- calls that returned an error/usage text: %d; calls blocked by dcguard: %d; autodiff invocations: %d' % (stats['error_calls'], stats['blocked'], stats['autodiff_calls']),
            '- ledger: ' + ledger_line(project, addr), '- watchdog events: ' + ('; '.join('%s (%s)' % x for x in events) or 'none'),
            '- most repeated calls: ' + ('; '.join('%dx %s %s' % (n, k[0], k[1][:80]) for k, n in cmds.most_common(3) if n > 2) or 'none')]

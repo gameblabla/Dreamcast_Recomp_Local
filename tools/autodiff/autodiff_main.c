@@ -23,6 +23,7 @@ static void on_alarm(int s)
 static struct { uint32_t addr, len; uint8_t *buf; } reg[MAXREG]; static int nreg;
 static struct { uint32_t addr; uint32_t rets[64]; int nret, hits; } cal[MAXCALLEE]; static int ncal;
 static char *log_; static size_t loglen, logcap;
+static char *wl_; static size_t wllen, wlcap;
 
 static void logf_(const char *fmt, ...);
 #include <stdarg.h>
@@ -32,6 +33,16 @@ static void logf_(const char *fmt, ...)
     va_start(ap, fmt); n = vsnprintf(tmp, sizeof tmp, fmt, ap); va_end(ap);
     if (loglen + (size_t)n + 1 > logcap) { logcap = (loglen + n + 1) * 2; log_ = realloc(log_, logcap); }
     memcpy(log_ + loglen, tmp, n + 1); loglen += n;
+}
+
+void ad_wlog(uint32_t a, int size, uint32_t v)
+{
+    char tmp[40]; int n, i;
+    n = snprintf(tmp, sizeof tmp, "%x:%d:", a, size);
+    for (i = 0; i < size; i++) n += snprintf(tmp + n, sizeof tmp - (size_t)n, "%02x", (v >> (8 * i)) & 0xff);   /* bytes in memory order (little-endian) */
+    tmp[n++] = ',';
+    if (wllen + (size_t)n + 1 > wlcap) { wlcap = (wllen + n + 1) * 2; wl_ = realloc(wl_, wlcap); }
+    memcpy(wl_ + wllen, tmp, (size_t)n); wllen += (size_t)n; wl_[wllen] = 0;
 }
 
 uint8_t *ad_mem(uint32_t addr)
@@ -82,8 +93,9 @@ int main(void)
             ncal++; continue;
         }
         /* case: "r4=.. fr4=.. m<addr>=<hex bytes> ..." */
+        wllen = 0; if (wl_) wl_[0] = 0;
         caseno++; { size_t n = strcspn(line, "\n"); if (n >= sizeof curcase) n = sizeof curcase - 1; memcpy(curcase, line, n); curcase[n] = 0; }
-        memset(&c, 0, sizeof c); loglen = 0; if (log_) log_[0] = 0;
+        memset(&c, 0, sizeof c); c.r[15] = 0x8cffff00u;   /* = the emulator's entry sp: stack arguments live at r15 + 4*i */ loglen = 0; if (log_) log_[0] = 0;
         for (k = 0; k < ncal; k++) cal[k].hits = 0;
         for (tok = strtok_r(line, " \n", &save); tok; tok = strtok_r(NULL, " \n", &save)) {
             char *eq = strchr(tok, '='); if (!eq) continue; *eq++ = 0;
@@ -99,6 +111,7 @@ int main(void)
         ad_wrapper(&c);
         alarm(0);
         printf("ret=%x%s", c.ret, log_ ? log_ : "");
+        if (wl_ && wllen) printf(" WL=%s", wl_); else printf(" WL=");
         for (k = 0; k < nreg; k++) {
             uint32_t i; printf(" rbytes:%x:%u=", reg[k].addr, reg[k].len);
             for (i = 0; i < reg[k].len; i++) printf("%02x", reg[k].buf[i]);

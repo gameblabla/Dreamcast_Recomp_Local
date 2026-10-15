@@ -45,3 +45,15 @@ Three fresh functions on the local qwen3.8-27b (8c04c938, 8c081798, 8c043680). R
 
 opencode notes (v2.0.29): plugins are DIRECTORY packages (`package.json` with `main`/`exports`) listed in `opencode.json` as `"plugins": ["./.opencode/dcguard"]`; hooks used: `session.hook("context"|"compaction")` (push a `{type:"text",text}` system part), `tool.hook("execute.before"|"execute.after")` (throwing blocks the call and the message goes back to the model). The v1 `.opencode/plugin/*.js` format is not loaded. Shell tool is called `shell`. JSON events: `step_start` / `tool_use` / `step_finish{reason,tokens}` / `text`.
 
+## Automation round 3 (2026-10-15, from the same transcripts)
+What the three runs spent their calls on, and what is now done by tools:
+| Observed | Now automatic |
+|---|---|
+| 8c04c938: pointer parameters (r4/r5 output buffers) received random numbers, so the retail code FAULTED (9 ledger runs of "emulator faults"); the model then hand-edited the wrapper to overwrite c->r[4]/r[5] | `dcfacts.param_classes` finds parameters used as the base of a memory access; `specgen` gives each its own region (`8cf00000`+, `ptr_args`), keeps them as args, and the wrapper is complete and does not touch registers |
+| 8c043680: a 5th argument on the stack (a table pointer at entry-sp+0) was missed; the model assumed "6 args" | stack arguments detected from Ghidra's `Stack[0x..]` comments; region `8cffff00` (the C driver and the emulator both start with r15 = 0x8cffff00); stack pointers get a pointer region patched into the word; port reads `ad_rd32(c->r[15] + 4*i)` |
+| 8c043680: the loop-count argument hung the run | `param_classes.count` (compare sites inside loops, origin tracked by copies/stack slots) -> `arg_limits [-2, 40]` in the generated spec; autodiff still bisects when something else loops |
+| 24-60 exploration calls (sed/grep over asm, reading other ports) before a first draft | `brief.py` (one page) + typed port skeleton from `specgen`; plugin shows `PHASE`/`NEXT ACTION` and warns after 40 calls without a body |
+| Wrong accessor widths, missing `NULL`, wrong callee argument counts | `autodiff.h` accessors with the SH-4 load semantics; skeleton `call_<addr>()` helpers with the counts the spec compares |
+| Mismatch reports needed manual decoding | `retail path, annotated:` (the retail jump targets as instructions) and `HINT:` from `adcheck.value_hint` (extension, off-by-one, shift, sign bit, never-produced) |
+Limits: classification is flow-insensitive copy tracking on the listing (single forward pass); a register that mixes two parameters (`add rS,rD`) is never reported as a pointer, `@(r0,rN)` is ignored. Treat everything as HYPOTHESIS; autodiff is the judge. The reference fixture 073f72 still has two surviving mutants (`rd32` shift constants) under `--final`: a spec gap in the fixture, not a tool bug.
+

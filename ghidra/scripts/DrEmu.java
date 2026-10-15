@@ -7,6 +7,8 @@
 import ghidra.app.script.GhidraScript;
 import ghidra.app.emulator.EmulatorHelper;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSpace;
+import ghidra.app.emulator.MemoryAccessFilter;
 import ghidra.program.model.mem.*;
 import java.io.*;
 import java.math.BigInteger;
@@ -35,6 +37,9 @@ public class DrEmu extends GhidraScript {
 		}
 	}
 
+	static volatile boolean wlogOn = false;
+	static final StringBuilder wlog = new StringBuilder();
+
 	@Override
 	protected void run() throws Exception {
 		String[] a = getScriptArgs();
@@ -43,6 +48,17 @@ public class DrEmu extends GhidraScript {
 		List<String> cases = Files.readAllLines(Paths.get(a[0]));
 		PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(a[1])));
 		EmulatorHelper emu = new EmulatorHelper(currentProgram);
+		// wlog: write trace. Every store the retail code performs while a case runs is recorded as <addr>:<size>:<bytes in memory order>, (the autodiff
+		// comparator filters the stack and compares the SEQUENCE with the port's ad_wr8/16/32 calls: write order, count and width, not only the final image)
+		emu.getEmulator().addMemoryAccessFilter(new MemoryAccessFilter() {
+			protected void processRead(AddressSpace s, long off, int size, byte[] v) { }
+			protected void processWrite(AddressSpace s, long off, int size, byte[] v) {
+				if (!wlogOn || !s.isMemorySpace() || wlog.length() > 400000) return;
+				wlog.append(Long.toHexString(off & 0xffffffffL)).append(':').append(size).append(':');
+				for (byte b : v) { wlog.append(Character.forDigit((b >> 4) & 15, 16)).append(Character.forDigit(b & 15, 16)); }
+				wlog.append(',');
+			}
+		});
 		try {
 			emu.setBreakpoint(toAddr(RET_ADDR));
 			for (String line : cases) {
@@ -105,6 +121,7 @@ public class DrEmu extends GhidraScript {
 		java.util.Set<Long> fullLogs = new java.util.HashSet<>();   // fullog=<addr>: log ALL argument registers (r4-r7, fr4-fr7) at entry of a skipped callee, to see what the spec does not compare
 		Map<Long, int[]> callLog = new HashMap<>();   // callog=<addr>:<nint>:<nfloat>: entry values logged for a skipped callee
 		StringBuilder watchLog = new StringBuilder();
+		boolean wantWlog = false;
 		boolean cover = false;                        // cover: log every distinct executed (non-stubbed) pc as " X=<hex>,<hex>,.." (instruction coverage for autodiff)
 		TreeSet<Long> covered = new TreeSet<>();
 		boolean trace = false;                        // trace: log control-flow jumps (pc != previous pc + 2) as " T=<hex>,.." (max 400)
@@ -118,6 +135,7 @@ public class DrEmu extends GhidraScript {
 			String k = eq < 0 ? s : s.substring(0, eq);
 			String v = eq < 0 ? "" : s.substring(eq + 1);
 			if (k.equals("cover")) cover = true;
+			else if (k.equals("wlog")) wantWlog = true;
 			else if (k.equals("trace")) trace = true;
 			else if (k.equals("stop")) stops.add(Long.parseLong(v, 16));
 			else if (k.equals("watch")) watches.add(Long.parseLong(v, 16));
@@ -160,6 +178,7 @@ public class DrEmu extends GhidraScript {
 		emu.writeRegister("PR", BigInteger.valueOf(RET_ADDR));
 		emu.writeRegister("pc", BigInteger.valueOf(entry));
 		long steps = 0;
+		wlog.setLength(0); wlogOn = wantWlog;
 		final long deadline = System.nanoTime() + CASE_MS * 1_000_000L;
 		String[] abiRegs = {"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"};   // callee-saved by the SH-4 C ABI (r15 = sp): checked at return
 		long[] abiIn = new long[abiRegs.length];
@@ -283,6 +302,8 @@ public class DrEmu extends GhidraScript {
 		for (int i = 0; i < abiRegs.length; i++) if ((emu.readRegister(abiRegs[i]).longValue() & 0xffffffffL) != abiIn[i]) abiBad.append(abiBad.length() > 0 ? "," : "").append(abiRegs[i]);
 		if (abiBad.length() > 0) sb.append(" ABI=").append(abiBad);
 		if (trace) sb.append(" T=").append(traceLog);
+		wlogOn = false;
+		if (wantWlog) sb.append(" WL=").append(wlog);
 		if (cover) { sb.append(" X="); for (long cv : covered) sb.append(Long.toHexString(cv)).append(','); }
 		for (String r : reads) {
 			String[] p = r.split(":");

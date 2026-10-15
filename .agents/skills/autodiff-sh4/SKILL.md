@@ -60,3 +60,9 @@ Stubbed callees are not executed (their side effects on memory are not modelled;
 - `PORT RUN ABORTED: AD_LOOP_BOUND/AD_CASE_TIMEOUT case=N` = a count-like argument is huge. autodiff names the argument (`BISECTED: ... r7 is the loop COUNT`) and the line to add: `"arg_limits": {"r7": [-2, 24]}`. The port is not wrong and the emulator is not slow.
 - `SPEC LINT ERROR ... overlaps the retail function itself`: a region covers the function's code/literal pool; remove it (constants are read from the image).
 - The ledger records `final`; `proofcheck.py` accepts a claim only after a PROVEN `--final` run on an unchanged port.
+
+## Spec keys written by specgen (do not delete them)
+- `ptr_args`: pointer parameters (and stack pointers) with their region base/size/field offsets; their `args` are the region addresses (exempt from the "few distinct values" lint).
+- `stack_args`: number of stack-argument words; region `8cffff00` holds them (`ad_rd32(c->r[15] + 4*i)`; the C driver sets r15 = 0x8cffff00 like the emulator).
+- `arg_limits`: signed range for loop-count arguments applied to "auto" values.
+- A mismatch report ends with `HINT:` (sign/zero extension, off-by-one, shift, sign bit ...) and `retail path, annotated:`: read those first.

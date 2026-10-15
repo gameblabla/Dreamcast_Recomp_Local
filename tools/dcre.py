@@ -24,6 +24,9 @@
   ./dcre permute ...       tiny source permuter for byte-matching (tools/permute.py)
   ./dcre emu GAME [...]    run flycast headless (tools/flycast_run.sh)
   ./dcre agent ADDR        run a local opencode agent on one function under the watchdog (tools/agentrun.py: resumes on output-limit loops/stalls, reports honestly)
+  ./dcre probe capture|hot|profile|peek ...  REAL runtime data from a Flycast save state via its GDB server (tools/dcprobe.py)
+  ./dcre rank [N]          which ready function to port NEXT: difficulty estimate x similarity to ported functions (tools/rank.py)
+  ./dcre brief ADDR         ONE page of facts (inputs: pointers/stack args/loop counts, callees, constants, hazards) -> work/brief/
   ./dcre readmem ADDR [LEN]   read retail memory at a VIRTUAL address (never open 1ST_READ.BIN by hand)
   ./dcre notes add|tried|show ADDR [text]   durable per-function notes that survive context compaction
 """
@@ -303,6 +306,12 @@ def main():
         return run(PY + [os.path.join(T, 'permute.py')] + rest, env)
     if c == 'emu':
         return run([os.path.join(T, 'flycast_run.sh')] + rest, env)
+    if c == 'probe':
+        return run(PY + [os.path.join(T, 'dcprobe.py')] + rest, env)
+    if c == 'rank':
+        return run(PY + [os.path.join(T, 'rank.py')] + rest, env)
+    if c == 'brief':
+        return run(PY + [os.path.join(T, 'brief.py')] + rest, env)
     if c == 'readmem':
         return run(PY + [os.path.join(T, 'readmem.py')] + rest, env)
     if c == 'notes':

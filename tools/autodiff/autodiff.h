@@ -26,4 +26,16 @@ uint32_t ad_rd32(uint32_t addr);  /* little-endian read of the declared-region i
 uint32_t ad_call(uint32_t callee, const uint32_t *ints, int ni, const uint32_t *fl, int nf);
 
 void ad_wrapper(ad_regs *c);      /* YOU implement this */
+
+/* Retail memory accessors (little-endian, abort outside the declared regions). Width/sign follow the SH-4 loads:
+ *   mov.b = ad_rd8s (signed)   extu.b = ad_rd8   mov.w = ad_rd16s (signed)   extu.w = ad_rd16   mov.l = ad_rd32 */
+static inline uint8_t  ad_rd8(uint32_t a)   { return *ad_mem(a); }
+static inline int8_t   ad_rd8s(uint32_t a)  { return (int8_t)*ad_mem(a); }
+static inline uint16_t ad_rd16(uint32_t a)  { uint8_t *p = ad_mem(a); return (uint16_t)(p[0] | (p[1] << 8)); }
+static inline int16_t  ad_rd16s(uint32_t a) { return (int16_t)ad_rd16(a); }
+void ad_wlog(uint32_t a, int size, uint32_t v);   /* appends one store to the write trace (compared with the retail store sequence when the spec has "write_trace") */
+static inline void ad_wr8(uint32_t a, uint32_t v)  { ad_wlog(a, 1, v); *ad_mem(a) = (uint8_t)v; }
+static inline void ad_wr16(uint32_t a, uint32_t v) { ad_wlog(a, 2, v); uint8_t *p = ad_mem(a); p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static inline void ad_wr32(uint32_t a, uint32_t v) { ad_wlog(a, 4, v); uint8_t *p = ad_mem(a); p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
+#define AD_STACK_TOP 0x8cffff00u   /* r15 at entry (the emulator and the port driver agree); stack argument i (5th, 6th ... argument) is at AD_STACK_TOP + 4*i */
 #endif
