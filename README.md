@@ -66,7 +66,7 @@ no byte-matching, no exact headers/structs, fewer library names. Agents must ask
 ## 3. Advice (the short version)
 
 - **Prefer byte-matching** when the original compiler is available: equality of bytes is the strongest possible proof. `docs/BYTE_MATCHING.md`.
-- **Ask for the SDK first.** Detect it (`./dcre sdk`), ask the user for the exact release, and only then decide to go on without it.
+- **Find the SDK first for your game.** Detect it (`./dcre sdk`), ask the user for the exact release, and only then decide to go on without it.
 - **A match is not a port.** Automatic permutation ("guess until it matches") reaches matching but not meaning, and old compilers exploit UB that
   modern compilers do not tolerate. Always run `AD_SANITIZE=1 ./dcre autodiff SPEC --mutate` and review the UB checklist (`docs/UB_AND_OLD_COMPILERS.md`).
 - **Trust the asm over the decompiler** for parameter meaning, widths, signs, strides and delay slots. Use `./dcre annotate ADDR`.
