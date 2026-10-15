@@ -34,7 +34,7 @@ Recommended: **Katana SDK R1.42J** and **1.00J** (what the Nadesico example used
 1. reads the library banners in your game and ranks public SDK releases by how many of the game's library builds they contain;
 2. scans your `SDK_DIRS` for the matching release, the Hitachi compiler (`shc.exe`, `asmsh.exe`, `lnk.exe`), `.lib` libraries and headers;
 3. if the exact release is missing it prints **`ASK THE USER: please give me a copy of the Dreamcast SDK <release> ...`** and exits with code 3.
-You *can* continue without it (naming by signatures from other releases, behaviour-only work), but it takes much longer: no original compiler means
+No SDK copy? `./dcre export` then runs `libtriage` automatically (docs/SDKS.md). You *can* continue without it (naming by signatures from other releases, behaviour-only work), but it takes much longer: no original compiler means
 no byte-matching, no exact headers/structs, fewer library names. Agents must ask before proceeding (skill `dc-project-setup`).
 
 ## 2. What is in here
@@ -46,6 +46,7 @@ no byte-matching, no exact headers/structs, fewer library names. Agents must ask
 | `tools/sdk_detect.py` | SDK release + compiler fingerprinting, asks for missing SDKs |
 | `ghidra/scripts/Dr*.java` | headless Ghidra: SH-4/Dreamcast memory map + MMIO (`DrSetup`), missed-code discovery (`DrFindCode`), SDK signature naming (`DrSdkRename`), curated names (`DrNames`), literal-pool constants (`DrConst`), asm/C/callgraph/strings dump (`DrDump`), FPSCR calling-convention fix (`DrFpscrConv`), SH-4 emulator for tests (`DrEmu`) |
 | `tools/sh4_annotate.py` | listing with literal-pool **values**, per-call argument registers, signature, loop counters/bounds |
+| `tools/libtriage.py` | no-SDK fallback: marks linked library code (callee closure + same-module runs from the few exact CRC matches) so it is not decompiled; skipped when the exact SDK is present |
 | `tools/triage.py` | classify functions (sdk/lib/hw/done/todo) and pick the next ready one |
 | `tools/autodiff.py` + `tools/autodiff/` | **retail vs your C** differential in the Ghidra SH-4 emulator: return value, callee calls in order, all memory; coverage gate; automatic mutants; `RESULT: PROVEN` |
 | `tools/bytematch.py`, `tools/permute.py` | compare compiled C with retail bytes; small source permuter |

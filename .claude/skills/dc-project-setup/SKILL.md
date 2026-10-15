@@ -11,6 +11,7 @@ description: Set up or resume a Dreamcast reverse-engineering/decomp project in 
    - exit 3 and an `ASK THE USER:` line: **stop and send that request to the user verbatim** (which SDK release, why). Offer to proceed without it and state the cost
      (no original compiler, no exact headers, fewer library names, much slower). Continue without the SDK only after the user agrees or declines to provide it.
    - If banners are absent (stripped), ask which SDK/compiler the game used.
+   - No SDK (user declined/unavailable): `./dcre export` runs `libtriage` (no-SDK fallback only; skipped if the SDK is present). Library functions become class `sdk` in `next`/`status`; `python3 -I tools/libtriage.py why ADDR` shows the evidence; `unknown` = treat as game code. Do not port `lib-*` functions; call them via host callbacks.
 5. `./dcre import` (Ghidra project + full export, several minutes) -> `work/research/*.tsv`, `asm/`, `decompiled/`. Re-run `./dcre export` after editing `names.tsv`.
 6. `./dcre status`, `./dcre next 20`, `./dcre slice ADDR` to choose work; then skill `decomp-function` (behaviour proof) and, if the original compiler exists, `byte-matching`.
 Rules: never commit `game/`, `work/`, SDK files or `project.env`; work in this repo only; temporaries in `work/` or `work/autodiff/`; do not print huge dumps (`head`, `grep`).

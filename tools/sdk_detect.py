@@ -93,6 +93,7 @@ def main():
     else:
         print('RESULT: the SDK release could not be identified from banners (stripped libraries or an unlisted release).')
         print('ASK THE USER: which Katana SDK release the game used (1.00J / 1.42J / R8 / R9 / R10.1 / R11b ...) and for a copy of it; the closest public one by date is the best fallback.')
+    print('No SDK? `./dcre libtriage` (run automatically by `./dcre export`) still separates linked library code from game code by structure.')
     print('Without it you can still proceed (the SH-4 reasoning, emulator differential and port workflow do not need the SDK), but naming library functions,')
     print('headers/struct layouts and byte-matching with the original compiler will be much slower or impossible. Say this when asking.')
     sys.exit(3)

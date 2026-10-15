@@ -6,6 +6,7 @@
   ./dcre sdk               identify the SDK/compiler the game was built with; tells you what SDK copy to ask for
   ./dcre import            create the Ghidra project (SuperH4 LE, base address) from game/1ST_READ.BIN
   ./dcre export            find missed code, name SDK functions, dump functions/call graph/asm/decompiled C to work/research/
+ ./dcre libtriage [cmd]    SDK-LESS FALLBACK: separate library code from game code by structure (only runs when no matching SDK is available; --force overrides)
   ./dcre status            triage summary: what is done / left
   ./dcre next [N] [MAXB]   cheapest READY functions to decompile next
   ./dcre slice ADDR        annotated asm + classified callees of one function
@@ -144,7 +145,33 @@ def cmd_export(env):
     if r or not os.path.exists(os.path.join(out, 'functions.tsv')):
         sys.exit('export failed, see work/logs/export.log')
     print('done: work/research/{functions,callgraph,hw_access,strings}.tsv, asm/, decompiled/')
+    if os.environ.get('DR_NO_LIBTRIAGE') != '1':      # no-SDK fallback only; skipped automatically when the exact SDK is present
+        cmd_libtriage(env, ['run'])
     return 0
+
+
+def sdk_available(env):
+    """True when `dcre sdk` finds the exact matching SDK release in SDK_DIRS (sdk_detect exit 0)."""
+    if not os.path.exists(env['DR_BIN']):
+        return False
+    dirs = [rel(d) for d in env['DR_SDK_DIRS'].split(':') if d]
+    if not dirs:
+        return False
+    r = subprocess.run(PY + [os.path.join(T, 'sdk_detect.py'), env['DR_BIN']] + dirs, env=env, cwd=ROOT, capture_output=True)
+    return r.returncode == 0
+
+
+def cmd_libtriage(env, rest):
+    force = '--force' in rest
+    rest = [x for x in rest if x != '--force']
+    sub = rest or ['run']
+    if sub[0] == 'run' and not force and sdk_available(env):
+        print('exact SDK found in SDK_DIRS: libtriage is only the no-SDK fallback, so it is skipped (use the SDK names/headers). --force to run anyway.')
+        p = rel('work/research/lib_triage.tsv')
+        if os.path.exists(p):
+            os.remove(p)
+        return 0
+    return run(PY + [os.path.join(T, 'libtriage.py')] + sub, env)
 
 
 def main():
@@ -166,6 +193,8 @@ def main():
         return cmd_import(env)
     if c == 'export':
         return cmd_export(env)
+    if c == 'libtriage':
+        return cmd_libtriage(env, rest)
     if c == 'status':
         return run(PY + [os.path.join(T, 'triage.py'), 'summary'], env)
     if c == 'next':

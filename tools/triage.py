@@ -6,7 +6,8 @@
   python3 -I tools/triage.py slice ADDR          # classified callees + annotated asm for one function (start here)
 
 Classes (first match wins):
-  sdk   name or sdk_matches.tsv says SDK / middleware (do not decompile: build against the real SDK or replace it)
+  sdk   name or sdk_matches.tsv says SDK / middleware, or tools/libtriage.py proved it is linked library code without needing the SDK
+        (work/research/lib_triage.tsv: sdk-exact, lib-callee, lib-run; lib-hint and unknown stay todo) (do not decompile: build against the real SDK or replace it)
   lib   address >= DR_LIB_START (env, hex): linked library region of the image (default: none)
   hw    touches PVR/AICA/G2/SH-4 registers >= 3 times (platform code)
   done  ported: a source file named *<addr>* exists under src/ or port/ (env DR_PORT_DIRS=dir,dir) or the address is listed in docs/PORTED.tsv
@@ -59,6 +60,9 @@ def classify():
             if t.startswith(('a05f', 'a070', 'a080', 'a100', 'a102')) or HW_SYM.match(r.get('target_symbol', '') or ''):
                 hw[a] += 1
     done = done_set()
+    lt = os.path.join(G, 'lib_triage.tsv')
+    if os.path.exists(lt):
+        sdk |= {r['address'].lower() for r in tsv('lib_triage.tsv') if r['class'] in ('sdk-exact', 'lib-callee', 'lib-run')}
     cls = {}
     for a, f in funcs.items():
         short = a[-6:]
@@ -85,6 +89,8 @@ def cmd_summary():
     print('functions=%d bytes=%d' % (len(funcs), tot))
     for c in ('done', 'todo', 'hw', 'sdk', 'lib'):
         print('  %-5s n=%5d bytes=%8d (%4.1f%%)' % (c, cnt[c], byt[c], 100 * byt[c] / max(tot, 1)))
+    if not os.path.exists(os.path.join(G, 'lib_triage.tsv')):
+        print('  (library code not yet separated: run `./dcre libtriage` — works without the SDK)')
 
 
 def cmd_next(n=8, maxb=400):
