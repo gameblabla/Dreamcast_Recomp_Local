@@ -24,9 +24,9 @@ SPEC.json keys (addresses are hex strings, no 0x needed):
   "equivalent_mutants": ["nd_x.c:11  0x1b120 -> 110879"]   surviving mutants you proved equivalent (explain in the port header)
   "asm_dir": optional dir of asm windows for the coverage check; "allow_uncovered": [addr...] unreachable instructions
   "image":   {"bin": "game/1ST_READ.BIN", "base": "0x8c010000"}   (only needed for fill=image)
-Environment: AD_SANITIZE=1 (build the port with UBSan+ASan: signed overflow, bad shifts, out-of-bounds reads become failures), AD_CFLAGS, AD_GHIDRA_HEADLESS, AD_GHIDRA_PROJECT, AD_PROGRAM (project/program names), AD_SCRIPTS (DrEmu.java dir), AD_TMP.
+Environment: AD_SANITIZE=1 (build the port with UBSan+ASan: signed overflow, bad shifts, misaligned access [UBSan 'alignment' check; the SH-4 raises an address error where x86 silently works], out-of-bounds reads become failures), AD_CFLAGS, AD_GHIDRA_HEADLESS, AD_GHIDRA_PROJECT, AD_PROGRAM (project/program names), AD_SCRIPTS (DrEmu.java dir), AD_TMP.
 """
-import argparse, json, os, random, re, subprocess, sys, tempfile
+import argparse, json, os, random, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
@@ -131,6 +131,8 @@ def parse_result(line):
             regs[k] = v
         elif re.match(r'^[CAD][0-9a-f]+=', t):
             ev.append(t)
+        elif t.startswith('ABI='):
+            regs['ABI'] = t[4:]
         elif t.startswith('X='):
             regs['X'] = t[2:]
         elif t.startswith('T='):
@@ -307,8 +309,11 @@ def main():
         cflags = __import__('shlex').split(os.environ.get('AD_CFLAGS', ''))
         if os.environ.get('AD_SANITIZE'):   # run the port under UBSan+ASan: undefined behaviour in the PORT is a bug even if the bytes of the result match
             cflags += ['-fsanitize=undefined,address', '-fno-sanitize-recover=all']
-        cmd = ['cc', '-std=gnu99', '-O1', '-g', '-Wall'] + cflags + inc + [HERE + '/autodiff/autodiff_main.c', os.path.join(ROOT, port['wrapper'])] + sources + ['-o', exe]
+        cmd = [os.environ.get('AD_CC', 'cc'), '-std=gnu99', '-O1', '-g', '-Wall'] + cflags + inc + [HERE + '/autodiff/autodiff_main.c', os.path.join(ROOT, port['wrapper'])] + sources + ['-o', exe]
         b = subprocess.run(cmd, capture_output=True, text=True)
+        if b.returncode and os.environ.get('AD_SANITIZE') and ('lasan' in b.stderr or 'lubsan' in b.stderr) and shutil.which('clang') and cmd[0] != 'clang':
+            cmd[0] = 'clang'           # this gcc package has no sanitizer runtimes; clang usually does
+            b = subprocess.run(cmd, capture_output=True, text=True)
         if b.returncode:
             return None, 'port build failed:\n' + b.stderr[-3000:]
         try:
@@ -330,6 +335,7 @@ def main():
     bad = fault = 0
     shown = 0
     covered = set()
+    abi_seen = set()
     for i, (e, o) in enumerate(zip(emu, cout)):
         if e.startswith('FAULT'):
             fault += 1
@@ -346,6 +352,9 @@ def main():
             why.append('call log differs at call #%d (callee-addr=args): retail=%s port=%s' % (j, eev[j] if j < len(eev) else '<none>', pev[j] if j < len(pev) else '<none>'))
         for k in ereg:
             if k == 'T':
+                continue
+            if k == 'ABI':
+                abi_seen.update(ereg[k].split(','))
                 continue
             if k == 'X':
                 covered.update(int(x, 16) for x in ereg[k].split(',') if x)
@@ -364,6 +373,10 @@ def main():
                 if ereg.get('T'):
                     print('   retail control-flow jumps (instruction addresses where execution was not sequential): ' + compress_trace(ereg['T'])[:700])
                     print('   -> compare with the annotated listing: this is the path the retail code took for these inputs; make your port take the same path and the same call order')
+    if abi_seen:
+        print('ABI NOTE: the retail function returns with %s changed (callee-saved r8-r14 / sp r15). That is NOT the standard SH-4 C convention:' % ','.join(sorted(abi_seen)))
+        print('   it is hand-written asm or relies on its caller (register-passing helper, longjmp-like code). The port signature must model it;')
+        print('   a plain C function cannot reproduce it. (Informational: does not change the verdict. Source: the idea of ABI_CHECK in sp00nznet/dcrecomp.)')
     # ---- instruction coverage of the RETAIL function (a port can only be proven on code the cases actually ran)
     uncovered = []
     try:

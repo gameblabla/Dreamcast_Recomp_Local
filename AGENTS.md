@@ -3,7 +3,7 @@
 Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by function, with proof for every function.
 
 ## Commands (everything goes through `./dcre`; `./dcre help`)
-`doctor` · `extract` · `sdk` · `import` · `export` · `status` · `next [N]` · `slice ADDR` · `annotate ADDR` · `autodiff SPEC --mutate` · `bytematch` · `permute` · `emu` · `agent ADDR`
+`doctor` · `extract` · `sdk` · `import` · `export` · `status` · `next [N]` · `slice ADDR` · `annotate ADDR` · `autodiff SPEC --mutate` · `cc` · `discover` · `bytematch` · `permute` · `emu` · `agent ADDR`
 
 ## First thing every session
 1. Skill `dc-project-setup`: `./dcre doctor`. If `project.env`/`game/`/`work/research` are missing, set them up as that skill says.
@@ -12,10 +12,12 @@ Goal: reverse engineer / re-implement a Dreamcast (SH-4) game function by functi
 
 ## Per function
 - Pick with `./dcre next` / `./dcre slice ADDR`. Load skill `decomp-function` and follow it literally.
-- Original compiler available (SDK matched)? also skill `byte-matching`. Always finish with skill `ub-and-old-compilers`.
+- Original compiler available (`./dcre cc find`, SHC from the SDK)? also skill `byte-matching`; `bytematch` prints `compiler=SHC|GCC(fallback)`, only SHC counts as a match. Always finish with skill `ub-and-old-compilers`.
 - Proof: `AD_SANITIZE=1 ./dcre autodiff SPEC --mutate` -> `RESULT: PROVEN`. Quote that line in your report. Anything else is NOT DONE.
 - Never weaken a spec, change seeds/case counts, or delete an input to make a mismatch disappear. A mismatch is a port bug.
 - Name the file with the address (`port/fn_8cXXXXXX.c`) so `./dcre status` counts it. Mark facts CONFIRMED (proven by a tool line) vs HYPOTHESIS.
+
+- Skills live in `.agents/skills/` (`.opencode/skills` and `.claude/skills` are symlinks). Edit them there.
 
 ## Hygiene
 - Trust the asm (`./dcre annotate`) over Ghidra's decompile for params, widths, signs, strides, delay slots, loop shapes.

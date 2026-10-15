@@ -45,3 +45,11 @@ none of the 552 already-ported game functions hit. Wine prefix needs ~2 GB: `DR_
 SDK_DIRS is empty, then `libtriage` extends the result structurally. Measured on Nadesico with no SDK and no local index: 1103 exact + callee/run inference =
 37.9% of function bytes classed as library (before: 153 exact, ~20-25%); hold-out rediscovery 84%; 0 of 552 ported game functions mislabelled.
 The SDK is then only needed for the original compiler (byte-matching). Other releases: build with `./dcre sdk-index`, copy the two files into data/sigs/.
+
+## The original compiler (`./dcre cc`)
+Katana SDK 1.42J ships the Hitachi **SH C/C++ Compiler 5.1 Release04** (`shc/bin/shc.exe`, 1999) plus `asmsh.exe`, `LNK.EXE`, `LBR.EXE`; it runs under wine.
+`tools/shc.py` finds it (`DR_SHC_DIR`, else a scan of `SDK_DIRS`), never copies or modifies the SDK, and links the result at the retail address.
+- With the SDK: `./dcre cc find|compile|asm`, and `./dcre bytematch` uses it by default (`compiler=SHC` in the verdict).
+- Without the SDK: nothing from the SDK is available in this repo (only hashes/names, `data/sigs/`), so the compiler cannot be shipped. The tools fall back to
+  `sh-elf-gcc` (`compiler=GCC(fallback...)`), which can only give structure hints; prove behaviour with `autodiff` instead.
+- A user who owns any Katana/Shinobi SDK containing `shc.exe` can point `DR_SHC_DIR` at that `bin` folder; SHC 5.1 releases 04/08/11 gave identical output.

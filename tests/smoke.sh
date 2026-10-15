@@ -15,4 +15,11 @@ if command -v sh-elf-gcc >/dev/null; then
 else
   echo "skip bytematch/permute (no sh-elf-gcc)"
 fi
+# discovery tool syntax is covered above; original compiler path only when an SDK compiler is installed
+if python3 -I tools/shc.py find >/dev/null 2>&1; then
+  printf 'int f(int x){int r; if(x>=0) r=x+11; else r=-1; return r;}\n' > "$T/s.c"
+  python3 -I tools/shc.py compile "$T/s.c" --func f -o "$T/s.bin" | head -1 | grep -q "compiler=SHC" && [ "$(stat -c %s "$T/s.bin")" -gt 0 ] && echo "shc ok"
+else
+  echo "skip shc (no SDK compiler / wine): bytematch falls back to sh-elf-gcc"
+fi
 echo "smoke ok"

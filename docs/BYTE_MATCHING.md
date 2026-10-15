@@ -39,11 +39,23 @@ previous file's last pool, ends after its own last pool), make sure both ends ar
 ## 3. The loop
 1. `./dcre slice ADDR` -> annotated asm: literal values, call arguments, loops, signature.
 2. Write C with the types the asm implies (`mov.w` = short, `extu.b` = unsigned char, `exts.w` = signed short...).
-3. Compile with the original compiler (wrapper in `DR_CC` or by hand), extract the function bytes -> `./dcre bytematch --addr .. --len .. --src f.c --func f`
-   (or `--cand-bin` for SHC output). `NORMALIZED` = same instructions, only pool layout/displacements differ.
+3. `./dcre bytematch --addr 8c.. --len N --src f.c --func f` compiles `f.c` with the ORIGINAL SHC (found in `SDK_DIRS`/`DR_SHC_DIR`, run under wine by
+   `tools/shc.py`; `./dcre cc asm f.c` shows SHC's own assembly) and compares with the retail bytes. Verdict `EXACT` = identical bytes; `NORMALIZED` = same
+   instructions and same literal-pool VALUES, only pool layout/displacements differ (a wrong global/call address is a DIFF). The last line says which
+   compiler was used (`compiler=SHC`). Absolute addresses of globals/callees: write `//@sym NAME 0xADDR` lines in the C (or `--syms FILE`) and use
+   `extern` declarations; they are linked as absolute symbols, so the code looks like the original (`extern short g_state;`, not pointer casts).
+   Gotcha: `--shc-flags=-speed` needs the `=` form.
 4. Iterate: diff -> hypothesis (type? order of declarations? `if` vs `?:`? loop form? inline?) -> rewrite.
 5. When stuck on a few instructions, `./dcre permute ...` random-walks neutral rewrites and keeps the lowest score.
 6. Matched? Run `autodiff --mutate` on it too, then record it.
+
+### Results from the first real runs (Nadesico, SHC 5.1 Release04 from Katana 1.42J, default flags)
+- Leaf with a branch: `if (x >= 0) r = x + 11; else r = -1; return r;` -> `EXACT`; the "obvious" `if (x>=0) return x+11; return -1;` did NOT match (different
+  register for the result): the exact shape of the original source matters even for 8 instructions.
+- Two small functions touching a global -> `NORMALIZED` (pool values verified).
+- A 47-instruction function (memset + loop + float stores + 4 calls): not matched after 6 shapes (score 56 -> 31): retail keeps no callee-saved register
+  and one `fldi1`; the next idea is the loop/struct shape or a different `-optimize`/`-speed` combination. Do not assume the first flags are right: the
+  per-file flags of the original build can differ.
 
 ## 4. What a permuter does not solve (read this)
 An automatic permuter ("keep guessing with a tool until it matches") gets you to a match, not to a correct reimplementation:
@@ -57,6 +69,6 @@ So: match first, then (a) restore the intended readable form, (b) run `AD_SANITI
 UB_AND_OLD_COMPILERS.md and mark every place the original relied on UB.
 
 ## 5. Without an original compiler (fallback)
-Use `sh-elf-gcc` as a *candidate* compiler for structure only (it will not byte-match SHC output; `bytematch` reports instruction-level
-`NORMALIZED`/`DIFF`). Treat the result as HYPOTHESIS and prove behaviour with `autodiff`. Do not spend hours chasing register allocation
+No SDK in `SDK_DIRS`? `./dcre bytematch` / `./dcre cc` fall back to `sh-elf-gcc` automatically and print `compiler=GCC(fallback: ...)`. Use it as a *candidate* compiler for structure only (it will not byte-match SHC output; `bytematch` reports instruction-level
+`NORMALIZED`/`DIFF`; a GCC "match" is never proof of anything). Treat the result as HYPOTHESIS and prove behaviour with `autodiff`. Do not spend hours chasing register allocation
 differences that come from the compiler, not your source.

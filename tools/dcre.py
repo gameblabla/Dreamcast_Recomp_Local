@@ -13,6 +13,8 @@
   ./dcre slice ADDR        annotated asm + classified callees of one function
   ./dcre annotate ADDR     annotated asm only (literal values, call args, loops)
   ./dcre autodiff SPEC     retail-vs-C differential in the Ghidra SH-4 emulator (adds --mutate for the full proof)
+  ./dcre cc [find|compile|asm] ...  run the ORIGINAL Hitachi SHC from your SDK under wine (tools/shc.py); without an SDK: sh-elf-gcc structure-only fallback
+  ./dcre discover [indirect|gaps]   unresolved indirect calls/jump tables and unexplained code bytes: where static discovery missed code
   ./dcre bytematch ...     compare compiled C with the retail bytes (see tools/bytematch.py)
   ./dcre permute ...       tiny source permuter for byte-matching (tools/permute.py)
   ./dcre emu GAME [...]    run flycast headless (tools/flycast_run.sh)
@@ -77,6 +79,12 @@ def cmd_doctor(env):
     chk('sh-elf-gcc / objdump', shutil.which('sh-elf-gcc') and shutil.which('sh-elf-objdump'), 'build or install an sh-elf binutils+gcc (KallistiOS toolchain works): needed for bytematch/permute', False)
     chk('opencode', shutil.which('opencode'), 'install opencode (https://opencode.ai) to run local-model agents', False)
     chk('wine/wibo', shutil.which('wine') or shutil.which('wibo'), 'needed only to run the ORIGINAL Hitachi SHC compiler from the SDK', False)
+    try:
+        sys.path.insert(0, T); import shc
+        f = shc.find_shc()
+    except Exception:
+        f = None
+    chk('SHC (original compiler)', ('%s' % f[0]) if f else '', 'optional: needs an SDK with shc.exe in SDK_DIRS (or DR_SHC_DIR) + wine; without it `./dcre cc`/bytematch use sh-elf-gcc (structure-only)', False)
     print('project files')
     chk('project.env', os.path.exists(rel('project.env')) and 'present', 'copy project.env.example to project.env and edit')
     disc = env.get('DISC', '')
@@ -268,6 +276,10 @@ def main():
         return run(PY + [os.path.join(T, 'sh4_annotate.py')] + rest, env)
     if c == 'autodiff':
         return run(PY + [os.path.join(T, 'autodiff.py')] + rest, env)
+    if c == 'cc':
+        return run(PY + [os.path.join(T, 'shc.py')] + (rest or ['find']), env)
+    if c == 'discover':
+        return run(PY + [os.path.join(T, 'discover.py')] + rest, env)
     if c == 'bytematch':
         return run(PY + [os.path.join(T, 'bytematch.py')] + rest, env)
     if c == 'permute':

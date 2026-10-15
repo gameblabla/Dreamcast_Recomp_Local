@@ -51,13 +51,15 @@ no byte-matching, no exact headers/structs, fewer library names. Agents must ask
 | `tools/libtriage.py` | no-SDK fallback: marks linked library code (callee closure + same-module runs from the few exact CRC matches) so it is not decompiled; skipped when the exact SDK is present |
 | `tools/triage.py` | classify functions (sdk/lib/hw/done/todo) and pick the next ready one |
 | `tools/autodiff.py` + `tools/autodiff/` | **retail vs your C** differential in the Ghidra SH-4 emulator: return value, callee calls in order, all memory; coverage gate; automatic mutants; `RESULT: PROVEN` |
+| `tools/shc.py` (`./dcre cc`) | runs the ORIGINAL Hitachi SHC 5.1 from your SDK under wine (compile to linked bytes, asm listing, absolute `//@sym` externs); no SDK -> sh-elf-gcc fallback, clearly labelled |
+| `tools/discover.py` (`./dcre discover`) | unresolved indirect calls / jump tables and unexplained code bytes: where static discovery missed code |
 | `tools/bytematch.py`, `tools/permute.py` | compare compiled C with retail bytes; small source permuter |
 | `tools/flycast_run.sh` | run flycast headless (xvfb, isolated config, GDB stub) |
 | `third_party/dc-re-ghidra` | submodule: SDK symbol table (`sdk-symbols.txt`) + the original `DreamcastRE.java` |
 | `third_party/flycast` | submodule: flycast source (pinned) |
 | `third_party/flycast-bin/` | precompiled headless flycast copies (`flycast`, `flycast-automation`, `flycast_libretro.so`); not in git, see docs/FLYCAST.md |
 | `skills/` | verbatim copies of the existing skills: `dc-decomp-kickoff` (SHC matching build, SDK scanning, asm split), `dcrecomp` (SH-4->C recompiler oracle), `skmp-sh4-fpu` (bit-exact FIPR/FTRV/FSCA models) |
-| `.claude/skills/` | what agents load (opencode and Claude Code both read this folder): `dc-project-setup`, `decomp-function`, `autodiff-sh4`, `byte-matching`, `ub-and-old-compilers`, `sh4-*` references, and links to `skills/*` |
+| `.agents/skills/` | the real skills folder (agent-neutral). `.opencode/skills` and `.claude/skills` are symlinks to it, so opencode and Claude Code load the same files: `dc-project-setup`, `decomp-function`, `autodiff-sh4`, `byte-matching`, `ub-and-old-compilers`, `sh4-*` references, and links to `skills/*` |
 | `docs/` | WORKFLOW, BYTE_MATCHING, UB_AND_OLD_COMPILERS, SDKS, GHIDRA_SH4_FPU, FLYCAST (+ the saved Ghidra SH-4 float notes) |
 | `AGENTS.md`, `opencode.json` | agent rules; example local-model config |
 

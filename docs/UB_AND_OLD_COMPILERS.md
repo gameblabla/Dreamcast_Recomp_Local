@@ -22,6 +22,19 @@ behaviour explicitly instead of hoping a new compiler agrees.
 | `volatile`/hardware | PVR/AICA/MMIO registers, store queues, cache ops | keep behind a platform layer, never in core logic |
 | calling convention | args r4-r7 / fr4-fr11, return r0 / fr0, callee-saved r8-r14; a callee may read a register the caller never set | model the real signature from the annotated asm, not the C prototype you guessed |
 
+## Lessons from public SH-4 static recompilers (dcrecomp, DreamcastRecompiled, dream-recomp)
+These lift the whole binary instead of porting function by function, so their pitfalls are the mirror image of ours; we keep the cheap checks:
+- **Callee-saved registers / sp at return**: they run an `ABI_CHECK`. `autodiff` now does the same on the RETAIL function and prints `ABI NOTE` if r8-r14 or
+  sp differ at return: such a function is not plain C (hand asm, register-passing helper) and the port signature must model it.
+- **Misaligned access**: the SH-4 raises an address error, x86/ARM hosts silently work and hide the bug; `AD_SANITIZE=1` includes UBSan's alignment check.
+- **Missed code**: static discovery reaches ~79-90% of a binary; the rest is behind computed jumps (switch tables, function-pointer tables, callbacks) or code copied
+  to RAM. `./dcre discover` lists unresolved indirect calls and unexplained code bytes (`work/research/indirect.tsv`, `gaps.tsv`). Seed what you find.
+- **Hand-written semantics are the error-prone part**: the division step (`div0s/div1`), `fipr/ftrv/fsca`, rounding. Do not trust a lift of these; verify with
+  the emulator (autodiff) and the bit-exact models in skills/skmp-sh4-fpu.
+- **Validate against a second implementation**, not by reading: emulator differential per function (autodiff), and for whole-program behaviour a rolling hash of
+  memory writes per frame to find the first divergence.
+- **Progress counter**: untranslated/unresolved call targets going to zero is a better completeness metric than "functions done".
+
 ## How the tools help
 - `AD_SANITIZE=1 ./dcre autodiff SPEC --mutate` builds the port with UBSan+ASan: signed overflow, invalid shifts, out-of-bounds reads of the
   declared regions become failures. A port that matches the emulator *and* is sanitizer-clean does not depend on UB.

@@ -155,6 +155,9 @@ public class DrEmu extends GhidraScript {
 		emu.writeRegister("PR", BigInteger.valueOf(RET_ADDR));
 		emu.writeRegister("pc", BigInteger.valueOf(entry));
 		long steps = 0;
+		String[] abiRegs = {"r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"};   // callee-saved by the SH-4 C ABI (r15 = sp): checked at return
+		long[] abiIn = new long[abiRegs.length];
+		for (int i = 0; i < abiRegs.length; i++) abiIn[i] = emu.readRegister(abiRegs[i]).longValue() & 0xffffffffL;
 		StringBuilder sb = new StringBuilder();
 		try {
 			emu.writeRegister(emu.getPCRegister(), BigInteger.valueOf(entry));
@@ -261,6 +264,9 @@ public class DrEmu extends GhidraScript {
 			return "FAULT " + e;
 		}
 		sb.append("ret=").append(Long.toHexString(emu.readRegister("r0").longValue() & 0xffffffffL)).append(watchLog);
+		StringBuilder abiBad = new StringBuilder();
+		for (int i = 0; i < abiRegs.length; i++) if ((emu.readRegister(abiRegs[i]).longValue() & 0xffffffffL) != abiIn[i]) abiBad.append(abiBad.length() > 0 ? "," : "").append(abiRegs[i]);
+		if (abiBad.length() > 0) sb.append(" ABI=").append(abiBad);
 		if (trace) sb.append(" T=").append(traceLog);
 		if (cover) { sb.append(" X="); for (long cv : covered) sb.append(Long.toHexString(cv)).append(','); }
 		for (String r : reads) {
