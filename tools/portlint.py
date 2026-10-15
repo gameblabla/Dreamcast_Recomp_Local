@@ -38,6 +38,20 @@ def lint(addr, port_paths, wrapper=None, spec=None):
     raw = ''.join(open(p).read() for p in port_paths)
     code = strip_c(raw)
     nums = numbers(code) | numbers(strip_c(open(wrapper).read()) if wrapper and os.path.exists(wrapper) else '')
+    for m in re.finditer(r'\b(?:f?printf|puts|fputs|perror|putchar)\s*\(', code):
+        errs.append('debug output (%s) in the port: ports are pure functions of their inputs; print nothing (use the mismatch report of autodiff, or the `trace`)' % m.group(0).strip('( '))
+        break
+    lo_hi = [int(x, 16) for x in re.findall(r'^[> ]([0-9a-f]{8}):', f['text'], flags=re.M)]
+    if lo_hi:
+        lo, hi = min(lo_hi), max(lo_hi) + 0x48        # + the literal pool that trails the code
+        for m in re.finditer(r'ad_(?:rd|mem|wr)\w*\(\s*(?:\(\w+\s*\*?\))?\s*(0[xX][0-9a-fA-F]+)', code):
+            v = int(m.group(1), 16)
+            if lo <= v <= hi:
+                errs.append('the port reads %#x which is INSIDE the retail function (code / literal pool %#x..%#x). Literal-pool constants are embedded in the port as plain numbers: '
+                            'see the `=>` / `[literal at ...]` values in `sh4_annotate.py`, or `readmem.py %#x`. Never declare code as a spec region (the emulator would overwrite the constants).' % (v, lo, hi, v))
+                break
+    if re.search(r'ad_rd\w*\(\s*ad_rd', code):
+        errs.append('nested ad_rd(ad_rd(...)): that dereferences a VALUE as an address. `mova` / `mov.l <pool>,rN` loads a constant or an address ONCE; a second load happens only if the asm has a second `mov.l @rN`')
     for m in re.finditer(r'#\s*error|\bTODO\b|\bFIXME\b|not implemented|XXX', raw):
         errs.append('unfinished marker %r in the port' % m.group(0))
         break

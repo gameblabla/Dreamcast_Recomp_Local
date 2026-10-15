@@ -23,7 +23,9 @@
   ./dcre bytematch ...     compare compiled C with the retail bytes (see tools/bytematch.py)
   ./dcre permute ...       tiny source permuter for byte-matching (tools/permute.py)
   ./dcre emu GAME [...]    run flycast headless (tools/flycast_run.sh)
-  ./dcre agent ADDR        run a local opencode headless agent on one function (uses the decomp-function skill)
+  ./dcre agent ADDR        run a local opencode agent on one function under the watchdog (tools/agentrun.py: resumes on output-limit loops/stalls, reports honestly)
+  ./dcre readmem ADDR [LEN]   read retail memory at a VIRTUAL address (never open 1ST_READ.BIN by hand)
+  ./dcre notes add|tried|show ADDR [text]   durable per-function notes that survive context compaction
 """
 import glob, os, shutil, subprocess, sys
 
@@ -301,14 +303,13 @@ def main():
         return run(PY + [os.path.join(T, 'permute.py')] + rest, env)
     if c == 'emu':
         return run([os.path.join(T, 'flycast_run.sh')] + rest, env)
+    if c == 'readmem':
+        return run(PY + [os.path.join(T, 'readmem.py')] + rest, env)
+    if c == 'notes':
+        return run(PY + [os.path.join(T, 'notes.py')] + rest, env)
     if c == 'agent':
-        addr = rest[0]
-        prompt = ('Task: decompile/port the function at address %s of this Dreamcast (SH-4) game to integer-only C in port/fn_%s.c and port/fn_%s.h. '
-                  'Load the skill `decomp-function` first and follow it literally; the proof is the final `RESULT:` line of autodiff with --mutate. '
-                  'Write your spec and wrapper under port/tests/. Do not commit. Finish with a short report that quotes the final RESULT line and lists anything autodiff cannot show.'
-                  % (addr, addr.replace('0x', '')[-8:], addr.replace('0x', '')[-8:]))
         os.makedirs(os.path.join(ROOT, 'port', 'tests'), exist_ok=True)
-        return run(['opencode', 'run', '--format', 'json', '--dir', ROOT, prompt], env, stdin=subprocess.DEVNULL)
+        return run(PY + [os.path.join(T, 'agentrun.py'), '--project', ROOT] + rest, env)
     sys.exit('unknown command %r; run ./dcre help' % c)
 
 

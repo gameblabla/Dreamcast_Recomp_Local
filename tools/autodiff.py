@@ -278,9 +278,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('spec'); ap.add_argument('--cases', type=int); ap.add_argument('--seed', type=int)
     ap.add_argument('--keep', action='store_true')
+    ap.add_argument('--final', action='store_true', help='the judge run to quote in a report: >= 300 cases, seed 7, >= 60 mutants, sanitizers on. A claim is only backed by a PROVEN --final run.')
     ap.add_argument('--mutate', type=int, nargs='?', const=24, default=0, help='also run N automatic mutants of the port sources (default 24)')
     a = ap.parse_args()
     spec = json.load(open(a.spec))
+    if a.final:
+        a.cases = max(a.cases or 0, 300)
+        a.seed = 7 if a.seed is None else a.seed
+        a.mutate = max(a.mutate or 0, 60)
+        os.environ.setdefault('AD_SANITIZE', '1')
     ncase = a.cases or spec.get('cases', 60)
     rnd = random.Random(a.seed if a.seed is not None else spec.get('seed', 1))
     tmp = os.environ.get('AD_TMP') or os.path.join(os.getcwd(), 'work', 'autodiff')   # inside the project: agents can read case files there without leaving the workspace
@@ -305,10 +311,13 @@ def main():
         print('note: retail facts unavailable (%s); spec lint is limited' % str(ex).split('\n')[0][:120])
     if facts and any(v == 'auto' for v in spec.get('args', {}).values()):     # "auto": boundary values harvested from the asm + random words
         pool = adcheck.auto_pool(facts, random.Random(1234), rng=spec.get('auto_range'))
-        spec['args'] = {k: (pool if v == 'auto' else v) for k, v in spec['args'].items()}
+        lim = spec.get('arg_limits', {})       # {"r7": [lo, hi]}: signed range for a count/length/index argument that drives a loop (unbounded values make the port AND the retail code run for ever)
+        spec['args'] = {k: ((adcheck.auto_pool(facts, random.Random(1234), rng=lim[k]) if k in lim else pool) if v == 'auto' else v) for k, v in spec['args'].items()}
     elif any(v == 'auto' for v in spec.get('args', {}).values()):
         sys.exit('"auto" args need the retail asm facts (./dcre export first)')
     lint_errs, lint_warns = adcheck.lint(spec, facts)
+    if lint_errs:
+        sys.exit('SPEC LINT ERROR(S) in %s (fix the spec, then rerun):\n  - ' % a.spec + '\n  - '.join(lint_errs))
 
     warn = list(lint_warns)
     if ncase < 20:
@@ -367,12 +376,46 @@ def main():
         if b.returncode and os.environ.get('AD_SANITIZE') and ('lasan' in b.stderr or 'lubsan' in b.stderr) and shutil.which('clang') and cmd[0] != 'clang':
             cmd[0] = 'clang'           # this gcc package has no sanitizer runtimes; clang usually does
             b = subprocess.run(cmd, capture_output=True, text=True)
+        if b.returncode and os.environ.get('AD_SANITIZE') and ('lasan' in b.stderr or 'lubsan' in b.stderr):
+            print('NOTE: no sanitizer runtime (gcc/clang): the port runs WITHOUT UBSan/ASan this time')
+            cmd = [x for x in cmd if not x.startswith('-fsanitize') and x != '-fno-sanitize-recover=all']
+            b = subprocess.run(cmd, capture_output=True, text=True)
         if b.returncode:
             return None, 'port build failed:\n' + b.stderr[-3000:]
         try:
-            cr = subprocess.run([exe], input='\n'.join(header + c_lines) + '\n', capture_output=True, text=True, timeout=120)
+            cr = subprocess.run([exe], input='\n'.join(header + c_lines) + '\n', capture_output=True, text=True, timeout=int(os.environ.get('AD_PORT_TOTAL_S', '600')))
         except subprocess.TimeoutExpired:
-            return None, 'timeout'
+            return None, ('port run exceeded %s s in total (the PORT binary, not the emulator): some case loops for ever. Set a per-case limit with '
+                          'AD_PORT_CASE_S=5 to learn which case/args, then bound that argument with "arg_limits" in the spec.' % os.environ.get('AD_PORT_TOTAL_S', '600'))
+        if cr.returncode in (97, 98):
+            line = [l for l in cr.stderr.split('\n') if l.startswith('AD_')][-1:] or [cr.stderr[-300:]]
+            regs_only = ' '.join(re.findall(r'\b(?:fr?\d+|r\d+)=[0-9a-f]+', line[0])) if 'args:' in line[0] else ''
+            head = line[0].split('args:')[0].strip() + (' regs: ' + regs_only if regs_only else '')
+            suspects = sorted({m.group(1) for m in re.finditer(r'\b(r\d+)=([0-9a-f]+)\b', line[0]) if int(m.group(2), 16) > 0x10000})
+            culprits = []
+            mcase = re.search(r'case=(\d+)', line[0])
+            if mcase and 0 < int(mcase.group(1)) <= len(c_lines):      # bisect: lower ONE big argument at a time on the aborting case; the one that makes it terminate is the count
+                base_toks = c_lines[int(mcase.group(1)) - 1].split()
+                for sname in suspects:
+                    toks = [('%s=3' % sname) if t.startswith(sname + '=') else t for t in base_toks]
+                    try:
+                        r2 = subprocess.run([exe], input='\n'.join(header + [' '.join(toks)]) + '\n', capture_output=True, text=True, timeout=60, env=dict(os.environ, AD_PORT_CASE_S='3'))
+                        if r2.returncode not in (97, 98):
+                            culprits.append(sname)
+                    except subprocess.TimeoutExpired:
+                        pass
+            if culprits:
+                bis = '  BISECTED: lowering only %s to 3 makes this case terminate, so %s is the loop COUNT.\n' % (' and '.join(culprits), ' and '.join(culprits))
+                lim = ', '.join('"%s": [-2, 24]' % x for x in culprits)
+            else:
+                bis = ''
+                lim = ', '.join('"%s": [-2, 24]' % x for x in (suspects or ['r7']))
+            return None, ('PORT RUN ABORTED: ' + head[:400] + '\n' + bis +
+                          '  -> NOT an emulator problem. The PORT ran >%ss on this case or called a callee >50000 times. The retail code has the same loop: an argument that is a\n'
+                          '     COUNT / LENGTH / INDEX (digit_count, n, size ...) received a huge generated value%s.\n'
+                          '     Fix the SPEC input range, not the port: ADD  "arg_limits": {%s}  to the spec (signed inclusive range applied to "auto" values; use the real domain of\n'
+                          '     that argument; coordinates/pointers/ids stay unlimited), or replace "auto" by a list. Do NOT lower cases/seed. Then rerun.' %
+                          (os.environ.get('AD_PORT_CASE_S', '10'), (' (large args in this case: %s)' % ', '.join(suspects)) if suspects else '', lim))
         if cr.returncode:
             hint = ''
             if 'outside every declared region' in cr.stderr:
@@ -385,12 +428,16 @@ def main():
         return cr.stdout.split('\n'), ''
 
     srcs = [os.path.join(ROOT, x) for x in port.get('sources', [])]
+    print('[autodiff] phase 1/3: build + run the port on %d cases%s' % (ncase, ' (FINAL judge run)' if a.final else ''), flush=True)
     cout, err = run_port(srcs, 'port')
     if cout is None:
         sys.exit(err)
 
     # ---- run the retail function
+    print('[autodiff] phase 2/3: retail function in the SH-4 emulator (%d cases; expect ~%d s, first start of Ghidra ~30 s; a case that runs >%s ms is reported as FAULT)' %
+          (ncase, max(30, ncase // 4), os.environ.get('ND_CASE_MS', '120000')), flush=True)
     emu = run_emulator(emu_lines, 'ad_' + func, tmp)
+    print('[autodiff] phase 3/3: compare%s' % (' + mutants' if a.mutate else ''), flush=True)
 
     bad = fault = 0
     shown = 0
@@ -400,7 +447,7 @@ def main():
         if e.startswith('FAULT'):
             fault += 1
             if fault <= 2:
-                print('case %d FAULT: %s\n  (a read/write outside the declared regions, an unstubbed callee, or an infinite loop)' % (i, e[:300]))
+                print('case %d FAULT: %s\n  (a read/write outside the declared regions, an unstubbed callee, or an infinite loop; for a loop/time-limit fault bound the count argument with "arg_limits")' % (i, e[:300]))
                 for x in adcheck.explain_fault(e, spec):
                     print('  -> ' + x)
             continue
@@ -482,8 +529,10 @@ def main():
     elif mrc: reasons.append('mutants survived (strengthen the inputs until all are killed)')
     result = 'RESULT: PROVEN' if not reasons else 'RESULT: NOT PROVEN -- ' + '; '.join(reasons)
     print(result)
+    if not reasons and not a.final:
+        print('NOT YET QUOTABLE: this run is provisional. Run `python3 -I tools/dc/autodiff.py %s --final` (new seed, 300 cases, 60 mutants, sanitizers) and quote THAT result line.' % a.spec)
     try:
-        adcheck.ledger_save(ROOT, led, a.spec, spec, fp, srcs, result, not reasons, os.path.join(ROOT, port['wrapper']))
+        adcheck.ledger_save(ROOT, led, a.spec, spec, fp, srcs, result, not reasons, os.path.join(ROOT, port['wrapper']), final=a.final)
     except Exception as ex:
         print('note: proof ledger not written: %s' % ex)
     sys.exit(0 if not reasons else 1)

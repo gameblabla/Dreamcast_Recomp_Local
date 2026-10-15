@@ -11,6 +11,7 @@
 #ifndef AUTODIFF_H
 #define AUTODIFF_H
 #include <stdint.h>
+#include <stddef.h>   /* NULL, size_t: wrappers and ports kept failing to compile without it */
 
 typedef struct {
     uint32_t r[16];     /* r0..r15 at entry; only r4..r7 are meaningful arguments */

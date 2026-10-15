@@ -10,7 +10,7 @@ Operand order is `op src,dst` (`sub r1,r2` = `r2 -= r1`). Everything below was c
 | `mov #imm8,Rn` | `Rn = (int8)imm` | sign-extended: `mov #0xff,r1` is -1 |
 | `mov.w @(disp,PC),Rn` / `mov.w 0x..,r1` | `Rn = (int16)LITERAL` | 16-bit literal, SIGN-extended. 0x8000..0xffff literals become negative; big struct strides/offsets load this way |
 | `mov.l @(disp,PC),Rn` | `Rn = LITERAL32` | literal pool; usually a global's address, a function address, or a float bit pattern |
-| `mova @(disp,PC),r0` | `r0 = &pool_or_table` | address of data (switch table, string) |
+| `mova @(disp,PC),r0` | `r0 = &pool_or_table` | address of data (switch table, string). If the next instruction is `fmov.s @r0,frN` / `mov.l @r0,rN`, it is a LITERAL LOAD: the value stored at that pool address goes into frN/rN once (sh4_annotate prints it: `; => fr3 = -8192f (0xc6000000) [literal at ...]`). In the port it is just a constant (`0xc6000000`), not a memory read |
 | `mov.b @Rm,Rn` | `Rn = *(int8_t*)Rm` | LOADS SIGN-EXTEND. `mov.b` alone = `int8_t`; `mov.b`+`extu.b` = `uint8_t` |
 | `mov.w @Rm,Rn` | `*(int16_t*)` | same rule; `+extu.w` = `uint16_t` |
 | `mov.l` | `*(int32_t*)` | |

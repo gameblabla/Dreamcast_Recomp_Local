@@ -21,7 +21,7 @@ import hashlib, json, os, re, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 
-SPEC_KEYS = {'func', 'cases', 'seed', 'check_ret', 'port', 'args', 'regions', 'callees', 'real', 'equivalent_mutants', 'asm_dir',
+SPEC_KEYS = {'arg_limits', 'func', 'cases', 'seed', 'check_ret', 'port', 'args', 'regions', 'callees', 'real', 'equivalent_mutants', 'asm_dir',
              'allow_uncovered', 'image', 'ignore_args', 'ignore_args_reason', 'notes', 'name', 'auto_range'}
 FLOOR_CASES = 40
 FLOOR_MUTANTS = 24
@@ -93,6 +93,18 @@ def lint(spec, f):
     if f is None:
         return [], ['no asm window for this function: spec lint skipped (run ./dcre export). The spec cannot be checked against the retail code.']
     args = spec.get('args', {})
+    code_addrs = [int(x, 16) for x in re.findall(r'^[> ]([0-9a-f]{8}):', f.get('text', ''), flags=re.M)]
+    if code_addrs:
+        c_lo, c_hi = min(code_addrs), max(code_addrs) + 0x48
+        for r in spec.get('regions', []):
+            try:
+                ra = int(str(r['addr']), 16)
+            except (KeyError, ValueError):
+                continue
+            if ra < c_hi and ra + int(r.get('len', 0)) > c_lo:
+                return [('region %s (+%d) overlaps the retail function itself (%08x..%08x: code and literal pool). The emulator would OVERWRITE the constants the code reads, '
+                         'so retail and port diverge for reasons that have nothing to do with the port. Delete that region; literal-pool values are read from the image '
+                         '(embed them in the port as numbers, see `sh4_annotate.py`)' % (r['addr'], r.get('len', 0), c_lo, c_hi))], warns
     for p in f['params']:
         if p not in args:
             warns.append('retail reads parameter %s before writing it, but the spec gives it no values: it is 0 in every case. Add "%s": "auto" (boundary values harvested from the asm) or a list.' % (p, p))
@@ -340,9 +352,9 @@ def ledger_best(led):
     return best
 
 
-def ledger_save(root, led, spec_path, spec, fp, srcs, result, proven, wrapper):
+def ledger_save(root, led, spec_path, spec, fp, srcs, result, proven, wrapper, final=False):
     led['runs'].append(dict(override=bool(os.environ.get('AD_ALLOW_WEAKER')), time=time.strftime('%Y-%m-%dT%H:%M:%S'), spec_sha=sha(spec_path), fp=fp, port={os.path.relpath(s, root): sha(s) for s in srcs},
-                            wrapper=sha(wrapper), result=result, proven=proven))
+                            wrapper=sha(wrapper), result=result, proven=proven, final=bool(final)))
     led['runs'] = led['runs'][-30:]
     p = ledger_path(root, led['func'])
     os.makedirs(os.path.dirname(p), exist_ok=True)

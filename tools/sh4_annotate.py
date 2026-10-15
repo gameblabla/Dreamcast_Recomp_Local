@@ -105,6 +105,7 @@ def main():
         if i['op'] in ('bra', 'bt', 'bf', 'bt/s', 'bf/s') and re.match(r'0x[0-9a-f]+', i['args']):
             targets.add(int(i['args'].split()[0], 16))
     print('# ANNOTATED LISTING (literal values from the binary; `=>` marks what the tool resolved)')
+    r0lit = None        # address loaded by the latest `mova <pool>,r0`; the following `fmov.s @r0,frN` / `mov.l @r0,rN` loads the VALUE stored there
     for i in ins:
         note = ''
         m = re.match(r'(mov\.[wl])\s+(0x[0-9a-f]{8}),(r\d+)', i['op'] + ' ' + i['args'])
@@ -112,8 +113,29 @@ def main():
             v = lit(int(m.group(2), 16), 2 if m.group(1) == 'mov.w' else 4)
             if v is not None:
                 note = '   => %s = %s (0x%x)' % (m.group(3), v, v & 0xffffffff)
+        if i['addr'] in targets:
+            r0lit = None
+        cnote = ''
+        if i['op'] == 'mova':
+            mm = re.match(r'(0x[0-9a-f]+),r0$', i['args'])
+            r0lit = int(mm.group(1), 16) if mm else None
+        elif r0lit is not None:
+            mm = re.match(r'@r0(\+)?,(f?r\d+)$', i['args'])
+            if mm and i['op'] in ('fmov.s', 'mov.l', 'mov.w', 'mov.b'):
+                size = {'fmov.s': 4, 'mov.l': 4, 'mov.w': 2, 'mov.b': 1}[i['op']]
+                o = r0lit - base
+                if 0 <= o and o + size <= len(image):
+                    raw = int.from_bytes(image[o:o + size], 'little')
+                    if i['op'] == 'fmov.s':
+                        fv = struct.unpack('<f', struct.pack('<I', raw))[0]
+                        cnote = '   ; => %s = %s (0x%08x) [literal at %08x]' % (mm.group(2), ('%gf' % fv), raw, r0lit)
+                    else:
+                        sv = raw - (1 << (8 * size)) if raw >> (8 * size - 1) else raw
+                        cnote = '   ; => %s = %d (0x%x) [literal at %08x]' % (mm.group(2), sv, raw, r0lit)
+            if 'r0' in reg_reads_writes(i)[1]:
+                r0lit = None
         mark = '>' if i['addr'] in targets else ' '
-        print('%s%08x: %s%-8s %-28s%s' % (mark, i['addr'], '_' if i['delay'] else ' ', i['op'], i['args'], note + ('   ; ' + i['cmt'] if i['cmt'] and not note else '')))
+        print('%s%08x: %s%-8s %-28s%s' % (mark, i['addr'], '_' if i['delay'] else ' ', i['op'], i['args'], note + (cnote or ('   ; ' + i['cmt'] if i['cmt'] and not note else ''))))
 
     f_lo, f_hi = min(x['addr'] for x in ins), max(x['addr'] for x in ins)
     # constant propagation, reset at branch targets

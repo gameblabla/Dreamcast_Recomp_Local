@@ -1,0 +1,35 @@
+// offline test of the dcguard plugin core: node tests/test_dcguard.mjs
+import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+import { Guard } from "../.opencode/dcguard/core.mjs";
+let fails = 0;
+const ok = (n, c, i = "") => { console.log((c ? "ok    " : "FAIL  ") + "dcguard: " + n + (c ? "" : "  " + i)); if (!c) fails++; };
+const d = fs.mkdtempSync(path.join(os.tmpdir(), "dcg-"));
+for (const x of ["tools/dc", "port/tests", "work/notes", ".agents/skills/decomp-function"]) fs.mkdirSync(path.join(d, x), { recursive: true });
+for (const t of ["autodiff.py", "readmem.py", "notes.py"]) fs.writeFileSync(path.join(d, "tools/dc", t), "#");
+fs.writeFileSync(path.join(d, "AGENTS.md"), "# t\n\n## Headless local-model runs\n- RULE-HEADLESS-MARKER\n\n## Model policy\n- not for the local model\n");
+fs.writeFileSync(path.join(d, ".agents/skills/decomp-function/SKILL.md"), "SKILL-MARKER");
+fs.writeFileSync(path.join(d, "work/notes/fn_8c043680.md"), "- [FACT] div_s32 dividend r1 NOTE-MARKER\n");
+const g = new Guard(d, { DC_AGENT: "1", DC_AGENT_ADDR: "0x8c043680" });
+const p = g.pinned();
+ok("pinned has headless rules, skill and notes", p.includes("RULE-HEADLESS-MARKER") && p.includes("SKILL-MARKER") && p.includes("NOTE-MARKER"), p.slice(0, 300));
+ok("pinned leaves out unrelated sections", !p.includes("not for the local model"));
+ok("compaction note keeps notes verbatim", g.compactionNote().includes("VERBATIM"));
+const sh = (c) => g.before("shell", { command: c });
+ok("nonexistent tool script blocked, real ones listed", /does not exist.*autodiff\.py/.test(sh("python3 -I tools/dc/dcre.py disasm 0x1") || ""));
+ok("existing tool allowed", sh("python3 -I tools/dc/autodiff.py port/tests/spec.json") === null);
+ok("AD_ALLOW_WEAKER blocked", /human-only/.test(sh("AD_ALLOW_WEAKER=1 python3 -I tools/dc/autodiff.py x") || ""));
+ok("--seed hunting blocked, --final allowed", /seed hunting/.test(sh("python3 -I tools/dc/autodiff.py s.json --seed 3") || "") && sh("python3 -I tools/dc/autodiff.py s.json --final") === null);
+ok("--cases 3 blocked, default allowed", /floor/.test(sh("python3 -I tools/dc/autodiff.py s.json --cases 3") || "") && sh("python3 -I tools/dc/autodiff.py s.json --cases 150") === null);
+ok("hand-reading the retail image blocked, readmem allowed", /readmem/.test(sh("python3 -c \"open('game/Track_3/1ST_READ.BIN','rb')\"") || "") && sh("python3 -I tools/dc/readmem.py 0x8c04ca18") === null);
+ok("proof ledger edits blocked", /append-only/.test(sh("rm -f work/proofs/8c043680.json") || ""));
+const cmd = "python3 -I tools/dc/sh4_annotate.py 0x8c043680 | grep 8c0437"; fs.writeFileSync(path.join(d, "tools/dc/sh4_annotate.py"), "#");
+const a = [sh(cmd), sh(cmd), sh(cmd)];
+ok("third identical command on unchanged files hits the LOOP GUARD", a[0] === null && a[1] === null && /LOOP GUARD/.test(a[2] || ""), JSON.stringify(a));
+fs.writeFileSync(path.join(d, "port/fn_8c043680.c"), "int x;");   // a file changed: the same command is legitimate again
+ok("same command after an edit is allowed", sh(cmd) === null);
+g.after("shell", "usage: autodiff.py"); g.after("shell", "Traceback");
+ok("error streak counted and shown in the pinned state", g.errStreak === 2 && g.pinned().includes("consecutive failing calls: 2"));
+g.after("shell", "fine");
+ok("error streak resets", g.errStreak === 0);
+console.log(fails ? `${fails} dcguard check(s) FAILED` : "dcguard: all checks passed");
+process.exit(fails ? 1 : 0);

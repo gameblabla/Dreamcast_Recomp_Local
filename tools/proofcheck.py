@@ -44,6 +44,9 @@ def backed(func):
         return False, 'the newest run used AD_ALLOW_WEAKER (a human-only override): not accepted as a proof'
     if not last.get('proven'):
         return False, 'newest run is NOT PROVEN (%s)' % last['result'][:120]
+    if 'final' in last and not last['final']:
+        return False, 'the newest PROVEN run is provisional: run `autodiff.py SPEC --final` (seed 7, 300 cases, 60 mutants, sanitizers) and quote that result'
+
     for rel, h in last['port'].items():
         if sha(os.path.join(ROOT, rel)) != h:
             return False, 'port file %s changed after the proof (hash mismatch): re-run autodiff' % rel

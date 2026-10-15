@@ -4,6 +4,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include "autodiff.h"
+#include <signal.h>
+#include <unistd.h>
+
+/* A port (and the retail code it mirrors) can loop for ever when an argument is a loop COUNT and the generated value is huge.
+ * Say WHICH case and WHICH args, and exit with a distinct code so autodiff.py can explain it (it is not an emulator problem). */
+static char curcase[600]; static int caseno;
+static void on_alarm(int s)
+{
+    char m[900]; int n; (void)s;
+    n = snprintf(m, sizeof m, "AD_CASE_TIMEOUT case=%d args: %s\n", caseno, curcase);
+    if (n > 0) { ssize_t w = write(2, m, (size_t)n); (void)w; }
+    _exit(97);
+}
 
 #define MAXREG 32
 #define MAXCALLEE 64
@@ -40,7 +53,12 @@ uint32_t ad_call(uint32_t callee, const uint32_t *ints, int ni, const uint32_t *
     for (k = 0; k < ncal; k++)
         if (cal[k].addr == callee) {
             uint32_t v = cal[k].nret ? cal[k].rets[cal[k].hits < cal[k].nret ? cal[k].hits : cal[k].nret - 1] : 0;
-            cal[k].hits++; return v;
+            cal[k].hits++;
+            if (cal[k].hits > 50000) {
+                fprintf(stderr, "AD_LOOP_BOUND case=%d callee %x called more than 50000 times in one case; args: %s\n", caseno, callee, curcase);
+                _exit(98);
+            }
+            return v;
         }
     fprintf(stderr, "ad_call: callee %x is not declared in the spec (\"callees\")\n", callee); abort();
 }
@@ -64,6 +82,7 @@ int main(void)
             ncal++; continue;
         }
         /* case: "r4=.. fr4=.. m<addr>=<hex bytes> ..." */
+        caseno++; { size_t n = strcspn(line, "\n"); if (n >= sizeof curcase) n = sizeof curcase - 1; memcpy(curcase, line, n); curcase[n] = 0; }
         memset(&c, 0, sizeof c); loglen = 0; if (log_) log_[0] = 0;
         for (k = 0; k < ncal; k++) cal[k].hits = 0;
         for (tok = strtok_r(line, " \n", &save); tok; tok = strtok_r(NULL, " \n", &save)) {
@@ -75,7 +94,10 @@ int main(void)
                 for (i = 0; i < n; i++) d[i] = (hexv(eq[2 * i]) << 4) | hexv(eq[2 * i + 1]);
             }
         }
+        signal(SIGALRM, on_alarm);
+        alarm(getenv("AD_PORT_CASE_S") ? (unsigned)atoi(getenv("AD_PORT_CASE_S")) : 10);
         ad_wrapper(&c);
+        alarm(0);
         printf("ret=%x%s", c.ret, log_ ? log_ : "");
         for (k = 0; k < nreg; k++) {
             uint32_t i; printf(" rbytes:%x:%u=", reg[k].addr, reg[k].len);

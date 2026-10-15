@@ -4,7 +4,7 @@ description: Prove a C port of ONE SH-4 function equals the retail code by runni
 ---
 # autodiff: retail function vs your C port
 
-`python3 -I tools/dc/autodiff.py SPEC.json [--cases N] [--seed S]` (takes 5 s - 1 min; Ghidra project must be imported).
+`python3 -I tools/dc/autodiff.py SPEC.json [--mutate [N]] [--final]` (takes ~20 s - 1 min; Ghidra project must be imported). `--final` = the judge run to quote: seed 7, >= 300 cases, >= 60 mutants, UBSan/ASan; a plain PROVEN prints `NOT YET QUOTABLE`. Do not use `--seed` (seed hunting) or small `--cases`.
 Needs >= 40 cases and non-zero fills; a `WEAK SPEC` warning/tag in the summary means the proof is void.
 Last line is the verdict: `RESULT: PROVEN` or `RESULT: NOT PROVEN -- reasons`. PROVEN requires: 0 mismatches, 0 faults, 100% retail-instruction coverage, spec not weak, AND a clean `--mutate` run. Always run it as `... SPEC.json --mutate`.
 Prints `autodiff <addr>: N cases, M mismatches, F faults` plus the first differing case. Exit 0 only if M=F=0.
@@ -53,3 +53,10 @@ autodiff runs the emulator on a private copy of the Ghidra project (`work/autodi
 
 ## Limits (say so in notes, mark HYPOTHESIS)
 Stubbed callees are not executed (their side effects on memory are not modelled; if the retail code reads memory a callee writes, use `real` or a scripted `ret`). Randomised inputs prove behaviour only on the explored region/args.
+
+
+## New in this version (read once)
+- Phases are printed (`[autodiff] phase 1/3 ... 3/3`); a silent run is a hang only after 10 minutes.
+- `PORT RUN ABORTED: AD_LOOP_BOUND/AD_CASE_TIMEOUT case=N` = a count-like argument is huge. autodiff names the argument (`BISECTED: ... r7 is the loop COUNT`) and the line to add: `"arg_limits": {"r7": [-2, 24]}`. The port is not wrong and the emulator is not slow.
+- `SPEC LINT ERROR ... overlaps the retail function itself`: a region covers the function's code/literal pool; remove it (constants are read from the image).
+- The ledger records `final`; `proofcheck.py` accepts a claim only after a PROVEN `--final` run on an unchanged port.

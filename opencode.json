@@ -8,9 +8,31 @@
     "local": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Local (llama.cpp server)",
-      "options": { "baseURL": "http://127.0.0.1:8080/v1", "apiKey": "none" },
-      "models": { "qwen3.8-27b": { "name": "qwen3.8-27b", "tool_call": true, "reasoning": true, "limit": { "context": 128000, "output": 65536 } } }
+      "options": {
+        "baseURL": "http://127.0.0.1:8080/v1",
+        "apiKey": "none"
+      },
+      "models": {
+        "qwen3.8-27b": {
+          "name": "qwen3.8-27b",
+          "tool_call": true,
+          "reasoning": true,
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          }
+        }
+      }
     }
   },
-  "permission": { "edit": "allow", "bash": "allow", "skill": "allow", "webfetch": "deny", "external_directory": "allow" }
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "skill": "allow",
+    "webfetch": "deny",
+    "external_directory": "allow"
+  },
+  "plugins": [
+    "./.opencode/dcguard"
+  ]
 }

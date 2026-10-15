@@ -70,6 +70,54 @@ else:
     rc, out = run('tools/portlint.py', '0x8c073f72', os.path.join(bad, 'nd_073f72.c'), '--spec', os.path.join(bad, 'spec.json'))
     check('portlint: model port wrapper/spec agree', 'error(s)' in out)
     shutil.rmtree(tmp)
+
+# ---- 2026-10-15 second-trial fixes (offline)
+import importlib
+rc, out = run('tools/readmem.py', '0x4ca24', '4')
+check('readmem: a truncated address is refused with the real offset explained', rc != 0 and '0x3ca24' in out and 'FULL address' in out, out)
+if os.path.exists(os.path.join(ROOT, 'game', '1ST_READ.BIN')):
+    rc, out = run('tools/readmem.py', '0x8c04ca18', '16')
+    check('readmem: virtual address -> file offset 0x3ca18, f32 view', rc == 0 and 'file offset 0x3ca18' in out and 'f32=-8192' in out, out)
+    rc, out = run('tools/sh4_annotate.py', '0x8c04c938')
+    check('annotate: mova + fmov.s @r0 resolves the float literal', rc == 0 and 'fr3 = -8192f' in out and '[literal at 8c04ca18]' in out, out[:300])
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import dcfacts, portlint
+    tmp = tempfile.mkdtemp()
+    bad_c = os.path.join(tmp, 'fn_8c04c938.c')
+    open(bad_c, 'w').write('#include "autodiff.h"\nvoid fn_8c04c938(ad_regs *c){ float t = ad_rd32(ad_rd32(0x8c04ca18)); fprintf(stderr, "x"); }\n')
+    errs, warns = portlint.lint(0x8c04c938, [bad_c])
+    check('portlint: debug print / literal-pool run-time read / nested ad_rd are ERRORs', sum(('debug output' in e) + ('INSIDE the retail function' in e) + ('nested ad_rd' in e) for e in errs) == 3, str(errs))
+    good_c = os.path.join(tmp, 'fn_8c04c938.c')
+    open(good_c, 'w').write('#include "autodiff.h"\nvoid fn_8c04c938(ad_regs *c){ uint32_t t = 0xc6000000u; (void)t; }\n')
+    errs, warns = portlint.lint(0x8c04c938, [good_c])
+    check('portlint: embedding the literal is accepted', not [e for e in errs if 'INSIDE' in e or 'debug' in e], str(errs))
+    shutil.rmtree(tmp)
+errs, _ = adcheck.lint({'regions': [{'addr': '8c000040', 'len': 16}], 'args': {}}, {'text': '>8c000000:  nop\n 8c000010:  rts\n', 'params': []})
+check('lint: a region over the function\'s own code/pool is an ERROR', any('overlaps the retail function itself' in e for e in errs), str(errs))
+# C driver: per-case alarm (exit 97) and callee-hit cap (exit 98) with the case args in the message
+td = tempfile.mkdtemp()
+for name, body, code in (('loop98', 'for (int i = 0; i < 60000; i++) ad_call(0x8c000000, (const uint32_t[]){1}, 1, NULL, 0);', 98), ('spin97', 'volatile int x = 1; while (x) {}', 97)):
+    open(os.path.join(td, 'w.c'), 'w').write('#include "autodiff.h"\nvoid ad_wrapper(ad_regs *c){ %s }\n' % body)
+    exe = os.path.join(td, name)
+    b = subprocess.run(['cc', '-std=gnu99', '-O1', '-I', os.path.join(ROOT, 'tools', 'autodiff'), os.path.join(ROOT, 'tools', 'autodiff', 'autodiff_main.c'), os.path.join(td, 'w.c'), '-o', exe], capture_output=True, text=True)
+    if b.returncode:
+        check('driver builds (%s)' % name, False, b.stderr[-300:]); continue
+    r = subprocess.run([exe], input='region 8c000000 16\ncallee 8c000000 0\nr7=70d3da1f r4=1\n', capture_output=True, text=True, timeout=30, env=dict(os.environ, AD_PORT_CASE_S='1'))
+    check('driver: %s exits %d naming the case args' % (name, code), r.returncode == code and 'r7=70d3da1f' in r.stderr and 'case=1' in r.stderr, '%s %s' % (r.returncode, r.stderr[-200:]))
+shutil.rmtree(td)
+# notes.py
+nd = tempfile.mkdtemp(); os.makedirs(os.path.join(nd, 'work'))
+r1 = subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'tools', 'notes.py'), 'add', '0x8c043680', 'div_s32: dividend r1, divisor r0'], capture_output=True, text=True, cwd=nd)
+r2 = subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'tools', 'notes.py'), 'add', '0x8c043680', 'div_s32: dividend r1, divisor r0'], capture_output=True, text=True, cwd=nd)
+r3 = subprocess.run([sys.executable, '-I', os.path.join(ROOT, 'tools', 'notes.py'), 'show', '0x8c043680'], capture_output=True, text=True, cwd=nd)
+check('notes: add, de-duplicate, show', 'noted' in r1.stdout and 'already' in r2.stdout and r3.stdout.count('div_s32') == 1, r1.stdout + r2.stdout + r3.stdout)
+shutil.rmtree(nd)
+# dcguard plugin core (node)
+if shutil.which('node'):
+    r = subprocess.run(['node', os.path.join(ROOT, 'tests', 'test_dcguard.mjs')], capture_output=True, text=True, cwd=ROOT)
+    check('dcguard core: blocks/re-injection rules', r.returncode == 0, (r.stdout + r.stderr)[-600:])
+    print(r.stdout.strip())
+
     if '--emulator' in sys.argv:
         os.makedirs(os.path.join(ROOT, 'work'), exist_ok=True)
         shutil.rmtree(os.path.join(ROOT, 'work', 'proofs'), ignore_errors=True)
@@ -78,9 +126,9 @@ else:
         shutil.rmtree(os.path.join(ROOT, 'work', 'proofs'), ignore_errors=True)
         ref = os.path.join(FX, '073f72_reference', 'spec.json')
         rc, out = run('tools/autodiff.py', ref, '--mutate', env={'AD_SANITIZE': '1'})
-        check('autodiff: generated spec proves the reference port', rc == 0 and 'RESULT: PROVEN' in out, out[-600:])
+        check('autodiff: generated spec proves the reference port (provisional)', rc == 0 and 'RESULT: PROVEN' in out and 'NOT YET QUOTABLE' in out, out[-600:])
         rc, out = run('tools/proofcheck.py', '--func', '8c073f72')
-        check('proofcheck: ledger backs the proof', rc == 0 and 'True' in out, out)
+        check('proofcheck: a provisional (non --final) PROVEN does not back a claim', rc != 0 and 'provisional' in out, out)
         sp = json.load(open(ref))
         sp['cases'] = 50
         sp['callees'][0]['floats'] = 1
