@@ -12,3 +12,9 @@
 *.BIN
 *.o
 __pycache__/
+*.lib
+*.obj
+*.sigs
+*.elf
+*.map
+/SDK/

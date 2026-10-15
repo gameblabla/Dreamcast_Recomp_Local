@@ -6,7 +6,8 @@
   ./dcre sdk               identify the SDK/compiler the game was built with; tells you what SDK copy to ask for
   ./dcre import            create the Ghidra project (SuperH4 LE, base address) from game/1ST_READ.BIN
   ./dcre export            find missed code, name SDK functions, dump functions/call graph/asm/decompiled C to work/research/
- ./dcre libtriage [cmd]    SDK-LESS FALLBACK: separate library code from game code by structure (only runs when no matching SDK is available; --force overrides)
+ ./dcre sdk-index [build DIR]  build a LOCAL signature table from your SDK libs (hashes only, nothing copied); export then names far more library code
+  ./dcre libtriage [cmd]    SDK-LESS FALLBACK: separate library code from game code by structure (only runs when no matching SDK is available; --force overrides)
   ./dcre status            triage summary: what is done / left
   ./dcre next [N] [MAXB]   cheapest READY functions to decompile next
   ./dcre slice ADDR        annotated asm + classified callees of one function
@@ -124,6 +125,43 @@ def cmd_import(env):
     return cmd_export(env)
 
 
+def sdk_index_dir(env):
+    return rel(env.get('DR_SDK_INDEX') or 'work/sdk_index')
+
+
+def merge_sig_matches(env, out):
+    """ApplySigs result (MATCH addr name) -> extra rows in sdk_matches.tsv so triage/libtriage treat them as exact SDK functions."""
+    res = os.path.join(out, 'sdk_sigs_result.txt')
+    if not os.path.exists(res):
+        return
+    libs = {}
+    lp = os.path.join(sdk_index_dir(env), 'katana-sdk.libs')
+    if os.path.exists(lp):
+        for line in open(lp):
+            n, _, l = line.rstrip('\n').partition('\t')
+            libs.setdefault(n, l)
+    tsv = os.path.join(out, 'sdk_matches.tsv')
+    have = set()
+    rows = []
+    if os.path.exists(tsv):
+        rows = open(tsv).read().splitlines()
+        have = {r.split('\t')[0] for r in rows[1:]}
+    else:
+        rows = ['address\told_name\tsdk_name\tlength']
+    add = 0
+    for line in open(res):
+        p = line.split()
+        if len(p) >= 3 and p[0] == 'MATCH':
+            a = p[1].lower().lstrip('0x') if p[1].lower().startswith('0x') else p[1].lower()
+            a = a.zfill(8)
+            if a not in have:
+                nm = p[2]
+                rows.append('%s\t%s\tr142J.%s.a.%s\t0' % (a, 'FUN_' + a, libs.get(nm, libs.get('_' + nm, 'sdkindex')), nm))
+                have.add(a); add += 1
+    open(tsv, 'w').write('\n'.join(rows) + '\n')
+    print('SDK-index signatures added %d exact library functions' % add)
+
+
 def cmd_export(env):
     hl, proj, name, scripts, out = ghidra_args(env, 'export')
     os.makedirs(out, exist_ok=True)
@@ -134,17 +172,21 @@ def cmd_export(env):
     prog = os.path.basename(env['DR_BIN'])
     log = open(os.path.join(ROOT, 'work', 'logs', 'export.log'), 'w') if os.path.isdir(os.path.join(ROOT, 'work', 'logs')) else open(os.devnull, 'w')
     print('finding code, naming SDK functions, dumping asm + decompiled C (several minutes) ... (logs: work/logs/export.log)')
-    args = [hl, proj, name, '-process', prog, '-scriptPath', scripts, '-preScript', 'DrFindCode.java']
+    args = [hl, proj, name, '-process', prog, '-scriptPath', scripts + ';' + os.path.join(ROOT, 'skills', 'dc-decomp-kickoff', 'scripts', 'ghidra'), '-preScript', 'DrFindCode.java']
     if os.path.exists(sym):
         args += ['-postScript', 'DrSdkRename.java', sym, os.path.join(out, 'sdk_matches.tsv')]
     fx = rel('ghidra/stdcall_noclobber_fpscr.xml')
     if os.path.exists(fx) and os.environ.get('DR_NO_FPSCR_FIX') != '1':   # readable SH-4 float decompilation (docs/GHIDRA_SH4_FPU.md)
         args += ['-postScript', 'DrFpscrConv.java', fx]
+    idx = sdk_index_dir(env)
+    if os.path.exists(os.path.join(idx, 'katana-sdk.sigs')):    # signatures built locally from YOUR SDK (tools/sdk_index.py): relocation-tolerant
+        args += ['-postScript', 'ApplySigs.java', os.path.join(idx, 'katana-sdk.sigs'), os.path.join(out, 'sdk_sigs_result.txt'), 'fill']
     args += ['-postScript', 'DrNames.java', names, '-postScript', 'DrConst.java', '-postScript', 'DrDump.java', out]
     r = subprocess.call(args, stdout=log, stderr=subprocess.STDOUT)
     if r or not os.path.exists(os.path.join(out, 'functions.tsv')):
         sys.exit('export failed, see work/logs/export.log')
     print('done: work/research/{functions,callgraph,hw_access,strings}.tsv, asm/, decompiled/')
+    merge_sig_matches(env, out)
     if os.environ.get('DR_NO_LIBTRIAGE') != '1':      # no-SDK fallback only; skipped automatically when the exact SDK is present
         cmd_libtriage(env, ['run'])
     return 0
@@ -193,6 +235,8 @@ def main():
         return cmd_import(env)
     if c == 'export':
         return cmd_export(env)
+    if c == 'sdk-index':
+        return run(PY + [os.path.join(T, 'sdk_index.py')] + (['build', rel(env['DR_SDK_DIRS'].split(':')[0])] if not rest and env['DR_SDK_DIRS'] else rest) + (['--out', sdk_index_dir(env)] if '--out' not in rest else []), env)
     if c == 'libtriage':
         return cmd_libtriage(env, rest)
     if c == 'status':

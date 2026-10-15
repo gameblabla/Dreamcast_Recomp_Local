@@ -46,6 +46,8 @@ no byte-matching, no exact headers/structs, fewer library names. Agents must ask
 | `tools/sdk_detect.py` | SDK release + compiler fingerprinting, asks for missing SDKs |
 | `ghidra/scripts/Dr*.java` | headless Ghidra: SH-4/Dreamcast memory map + MMIO (`DrSetup`), missed-code discovery (`DrFindCode`), SDK signature naming (`DrSdkRename`), curated names (`DrNames`), literal-pool constants (`DrConst`), asm/C/callgraph/strings dump (`DrDump`), FPSCR calling-convention fix (`DrFpscrConv`), SH-4 emulator for tests (`DrEmu`) |
 | `tools/sh4_annotate.py` | listing with literal-pool **values**, per-call argument registers, signature, loop counters/bounds |
+| `tools/sdk_index.py` | builds a local relocation-tolerant signature table from your SDK libs (hashes/names only; libs deleted after use) |
+| `tools/sdk_headers_strip.py`, `include/` | stripped SDK headers (declarations only) |
 | `tools/libtriage.py` | no-SDK fallback: marks linked library code (callee closure + same-module runs from the few exact CRC matches) so it is not decompiled; skipped when the exact SDK is present |
 | `tools/triage.py` | classify functions (sdk/lib/hw/done/todo) and pick the next ready one |
 | `tools/autodiff.py` + `tools/autodiff/` | **retail vs your C** differential in the Ghidra SH-4 emulator: return value, callee calls in order, all memory; coverage gate; automatic mutants; `RESULT: PROVEN` |

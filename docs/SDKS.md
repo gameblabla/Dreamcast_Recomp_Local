@@ -30,3 +30,12 @@ Nothing is bundled: the built-in CRC table (third_party/dc-re-ghidra) only knows
 classes. Nadesico (R1.42J, no SDK): 25% of function bytes identified as library (2035 functions), 0 of 552 already-ported game functions mislabelled;
 `libtriage.py validate` hides 30-70% of the exact matches and rediscovers ~48% of them (module label can be wrong at module boundaries: trust the class, not the module).
 Check one function with `libtriage.py why ADDR`. It is conservative: false "unknown" costs time, false "lib" would hide game code, so only chains from exact matches are used.
+
+## With an SDK copy: `./dcre sdk-index` (local signatures) and stripped headers
+`./dcre sdk-index` (tools/sdk_index.py) links your SDK's Hitachi `.lib` files with the SDK's own `lbr.exe`/`lnk.exe` (wine or wibo), hashes every function with
+Ghidra's function-ID (relocation-tolerant, unlike the CRC table that only knows R8/R10/R11) and writes `work/sdk_index/katana-sdk.sigs` (+ `.libs`). Library copies are
+deleted after linking; only hashes and symbol names remain, git-ignored (`*.lib`, `*.obj`, `*.sigs`, `work/` are all ignored). `./dcre export` then applies the table
+(ApplySigs, unique matches only) and merges the result into `sdk_matches.tsv`. Nadesico + SDK 1.42J: 1103 exact library functions named (CRC table alone: 153),
+none of the 552 already-ported game functions hit. Wine prefix needs ~2 GB: `DR_WINEPREFIX=/tmp/x ./dcre sdk-index`.
+`include/sdk_stripped_1.42J/` = SDK headers reduced to declarations (no comments/banners/strings; `tools/sdk_headers_strip.py SDK_DIR OUT`): struct layouts, enums, prototypes.
+`libtriage` stays the no-SDK fallback only; with the SDK it is skipped (`./dcre libtriage --force` still works and adds callee/run inference on top).
