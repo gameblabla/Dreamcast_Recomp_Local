@@ -87,6 +87,10 @@ def main():
             if fm:
                 print('\nRESULT: the exact SDK (%s) is available in %s. Byte-matching with the original compiler is possible.' % (best or fm.group(1), d)); sys.exit(0)
     print()
+    shipped = sorted(os.path.basename(x) for x in __import__('glob').glob(os.path.join(ROOT, 'data', 'sigs', '*.sigs')))
+    if best and any(t[len('katana-'):-5] in best for t in shipped):
+        print('NOTE: this repo ships library signatures for %s (data/sigs/, hashes+names only): library functions are named WITHOUT an SDK.' % best)
+        print('      The SDK is only needed for the original compiler (byte-matching) and exact headers; include/sdk_stripped_* has the declarations.')
     if best:
         print('RESULT: SDK NEEDED. The game was built with: %s.' % best)
         print('ASK THE USER: "Please give me a copy of the Dreamcast SDK %s (Katana/Shinobi libraries + SHC compiler) as a folder or .iso/.zip and set SDK_DIRS in project.env to it."' % best)

@@ -18,7 +18,7 @@
   ./dcre emu GAME [...]    run flycast headless (tools/flycast_run.sh)
   ./dcre agent ADDR        run a local opencode headless agent on one function (uses the decomp-function skill)
 """
-import os, shutil, subprocess, sys
+import glob, os, shutil, subprocess, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 T = os.path.join(ROOT, 'tools')
@@ -129,14 +129,33 @@ def sdk_index_dir(env):
     return rel(env.get('DR_SDK_INDEX') or 'work/sdk_index')
 
 
+def sig_tables(env):
+    """(sigs, libs) = the shareable tables in data/sigs/ plus your own local index (work/sdk_index), merged into one file pair under work/."""
+    srcs = sorted(glob.glob(rel('data/sigs/*.sigs'))) + [os.path.join(sdk_index_dir(env), 'katana-sdk.sigs')]
+    srcs = [x for x in srcs if os.path.exists(x)]
+    if not srcs:
+        return None, None
+    os.makedirs(rel('work'), exist_ok=True)
+    ms, ml = rel('work/sig_merged.sigs'), rel('work/sig_merged.libs')
+    with open(ms, 'w') as o:
+        for x in srcs:
+            o.write(open(x).read())
+    with open(ml, 'w') as o:
+        for x in srcs:
+            lx = x[:-5] + '.libs' if not x.endswith('katana-sdk.sigs') else x[:-5] + '.libs'
+            if os.path.exists(lx):
+                o.write(open(lx).read())
+    return ms, ml
+
+
 def merge_sig_matches(env, out):
     """ApplySigs result (MATCH addr name) -> extra rows in sdk_matches.tsv so triage/libtriage treat them as exact SDK functions."""
     res = os.path.join(out, 'sdk_sigs_result.txt')
     if not os.path.exists(res):
         return
     libs = {}
-    lp = os.path.join(sdk_index_dir(env), 'katana-sdk.libs')
-    if os.path.exists(lp):
+    lp = sig_tables(env)[1]
+    if lp and os.path.exists(lp):
         for line in open(lp):
             n, _, l = line.rstrip('\n').partition('\t')
             libs.setdefault(n, l)
@@ -178,9 +197,9 @@ def cmd_export(env):
     fx = rel('ghidra/stdcall_noclobber_fpscr.xml')
     if os.path.exists(fx) and os.environ.get('DR_NO_FPSCR_FIX') != '1':   # readable SH-4 float decompilation (docs/GHIDRA_SH4_FPU.md)
         args += ['-postScript', 'DrFpscrConv.java', fx]
-    idx = sdk_index_dir(env)
-    if os.path.exists(os.path.join(idx, 'katana-sdk.sigs')):    # signatures built locally from YOUR SDK (tools/sdk_index.py): relocation-tolerant
-        args += ['-postScript', 'ApplySigs.java', os.path.join(idx, 'katana-sdk.sigs'), os.path.join(out, 'sdk_sigs_result.txt'), 'fill']
+    sigs, _ = sig_tables(env)   # shareable data/sigs/*.sigs (hashes+names, no SDK code) + your local tools/sdk_index.py output
+    if sigs:
+        args += ['-postScript', 'ApplySigs.java', sigs, os.path.join(out, 'sdk_sigs_result.txt'), 'fill']
     args += ['-postScript', 'DrNames.java', names, '-postScript', 'DrConst.java', '-postScript', 'DrDump.java', out]
     r = subprocess.call(args, stdout=log, stderr=subprocess.STDOUT)
     if r or not os.path.exists(os.path.join(out, 'functions.tsv')):

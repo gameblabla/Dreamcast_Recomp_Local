@@ -24,7 +24,7 @@ rendering-library functions that no SDK table could. Apply it with `fill`, after
 
 The Katana SDK's `.lib` files hold every exported library function. Built once per SDK version,
 the table applies to any game of that era in seconds.
-Keep the table local: it is derived from the SDK and must not be committed.
+(This repo ships its own hash+name tables in data/sigs/; see data/sigs/README.md.)
 
 Pipeline (all with the SDK's own Hitachi tools, run under `wibo` in a Linux container)
 1. `lbr.exe`: `library <lib>` / `list` per session (one library per session) gives the module names.

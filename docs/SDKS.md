@@ -39,3 +39,9 @@ deleted after linking; only hashes and symbol names remain, git-ignored (`*.lib`
 none of the 552 already-ported game functions hit. Wine prefix needs ~2 GB: `DR_WINEPREFIX=/tmp/x ./dcre sdk-index`.
 `include/sdk_stripped_1.42J/` = SDK headers reduced to declarations (no comments/banners/strings; `tools/sdk_headers_strip.py SDK_DIR OUT`): struct layouts, enums, prototypes.
 `libtriage` stays the no-SDK fallback only; with the SDK it is skipped (`./dcre libtriage --force` still works and adds callee/run inference on top).
+
+## Shareable tables (no SDK for end users)
+`data/sigs/katana-1.42J.{sigs,libs}` are committed: hashes + sizes + public symbol names only (see data/sigs/README.md). `./dcre export` applies them even when
+SDK_DIRS is empty, then `libtriage` extends the result structurally. Measured on Nadesico with no SDK and no local index: 1103 exact + callee/run inference =
+37.9% of function bytes classed as library (before: 153 exact, ~20-25%); hold-out rediscovery 84%; 0 of 552 ported game functions mislabelled.
+The SDK is then only needed for the original compiler (byte-matching). Other releases: build with `./dcre sdk-index`, copy the two files into data/sigs/.

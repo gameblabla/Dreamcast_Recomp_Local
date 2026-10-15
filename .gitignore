@@ -18,3 +18,4 @@ __pycache__/
 *.elf
 *.map
 /SDK/
+!/data/sigs/*.sigs
